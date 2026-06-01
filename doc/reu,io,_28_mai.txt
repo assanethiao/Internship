@@ -1,0 +1,33 @@
+k pas le moins nette 
+
+pourquoi cest faux
+on peut dire que les resultast ne sont pas crédibles comparés au gt
+la geometrie de la classification ne sont pas crédibles
+sur gt la geometrie est normale, on pert les bodures sur les images de classification
+comment justifier dans le rapport
+l'implementation donne les memes résultats si on fait meme que l'algorithme
+expliquer en quoi cest la meme chose il faut expliquer le pourquoi il faut justifier sur le rapport( on peut dire cest aussi loin de la verité de terrain gt) mais ca veut pas dire que les résultats sont les memes
+
+simulation de la bande 3à
+on peut constater son resultat intressant il y a des frontières 
+
+a chaque simulation accompagné avec des phrases
+
+discussion pour la suite
+quand on regarde la verité de terrain les bord son rectiligbe  pas de region avec des points on voit des angles droits les bords ne sont pas toutes rectiligne
+
+la bleu foncé nest pas decrite la luteratire cest deux idées: tout point particulers nest pas bons, pas de points, moyenne; 2eme idee  de la literature dans mon k-measn je considere l'intensité de deux point s(donc un poitn je considre qu cest 400 bandes au lieu de 200) on patrt en disant que le ppoint a gauche a droite en bas en haut apres travailler suer la moyenne 
+
+les point ne dooivent etre isolés
+
+je choisi la facon dappler un point de facon que jai des angles droits des bords rectiligne asctuce je considere que certain nombre de points appartinet a un e classe je fais une clasification supervisée apre ssegmentation si ca me plait je dis oui ca apprtitn a telle classe chosir , il faut choisr un angle droit par rapport au opoint choisi. et voir 
+
+
+
+ce quon appele choiosr les point on a limage hyperspectrale je choisi un point
+
+avoir un martric commposé de deux parties que je considere deux classes,claasse 0 et classe 1je fait un classifieur et jappliquye sur toute limgae et je regarde la classifiation
+choisir des petutes zones ou grandes zoness, 
+asctuce des fontieres pour delimeter des régions 
+
+sur le document je peux trouver labas des descirpteurs
