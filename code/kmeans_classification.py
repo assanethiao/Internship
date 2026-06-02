@@ -8,13 +8,43 @@ from scipy.optimize import linear_sum_assignment
 data = np.load('..\\dataset\\indianpinearray.npy')
 gt = np.load('..\\dataset\\IPgt.npy')
 
-# print("Image shape:", data.shape)
-# print("Ground truth shape:", gt.shape)
+# print("Image shape:", data.shape) # print("Ground truth shape:", gt.shape) # X = data.reshape(M * N, K) # print("Dataset shape (pixels, bands):", X.shape)
 
 # Preprocessing
 M, N, K = data.shape
-X = data.reshape(M * N, K)
-# print("Dataset shape (pixels, bands):", X.shape)
+
+'''
+new_data = np.copy(data)
+
+for i in range(1, M-1):
+    for j in range(1, N-1):
+
+        new_data[i,j,:] = (
+            data[i,j,:]      # centre
+            + data[i-1,j,:]  # haut
+            + data[i+1,j,:]  # bas
+            + data[i,j-1,:]  # gauche
+            + data[i,j+1,:]  # droite
+        ) / 5
+
+X = new_data.reshape(M * N, K)
+'''
+features = []
+
+for i in range(1, M-1):
+    for j in range(1, N-1):
+
+        centre = data[i,j,:]
+        haut   = data[i-1,j,:]
+        bas    = data[i+1,j,:]
+        gauche = data[i,j-1,:]
+        droite = data[i,j+1,:]
+
+        feature = np.concatenate([centre, haut, bas, gauche, droite])
+
+        features.append(feature)
+
+X = np.array(features)
 
 
 def clustering_accuracy(gt, pred):
@@ -55,7 +85,7 @@ for n_clusters in range(2, 17):
 '''
 
 # K-means clusturing
-n_clusters =  7 # à tester
+n_clusters =  16 # à tester
 kmeans = KMeans(n_clusters=n_clusters, random_state=0, n_init=20)
 labels = kmeans.fit_predict(X)
 
@@ -63,21 +93,23 @@ labels = kmeans.fit_predict(X)
 classification = labels.reshape(M, N)
 
 # Visualisation
-plt.figure(figsize=(6,5))
+plt.figure(figsize=(14,6))
+
+# Classification
+plt.subplot(1, 2, 1)
 plt.imshow(classification, cmap='jet')
-plt.title(f"K-means Classification - ({n_clusters} clusters)")
+plt.title(f"K-means Classification ({n_clusters} clusters)")
 plt.axis('off')
+
+# Ground Truth
+plt.subplot(1, 2, 2)
+plt.imshow(gt, cmap='jet')
+plt.title("Ground Truth")
+plt.axis('off')
+
+plt.tight_layout()
 plt.show()
 
 accuracy = clustering_accuracy(gt, classification)
 print(f"Clustering Accuracy: {accuracy:.4f}")
 
-'''
-
-plt.figure(figsize=(6,5))
-plt.imshow(gt, cmap='jet')
-plt.title("Ground Truth")
-plt.axis('off')
-plt.show()
-
-'''
