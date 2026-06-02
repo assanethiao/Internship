@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
-
+from sklearn.cluster import KMeans 
 from sklearn.metrics import confusion_matrix
 from scipy.optimize import linear_sum_assignment
 
@@ -41,6 +40,7 @@ def clustering_accuracy(gt, pred):
 
     return accuracy
 
+'''
 for n_clusters in range(2, 17):
     kmeans = KMeans(n_clusters=n_clusters, random_state=0, n_init=20)
     labels = kmeans.fit_predict(X_pca)
@@ -53,9 +53,9 @@ for n_clusters in range(2, 17):
 
 
 '''
-# K-means clusturing
 
-n_clusters =  15 # à tester
+# K-means clusturing
+n_clusters =  7 # à tester
 kmeans = KMeans(n_clusters=n_clusters, random_state=0, n_init=20)
 labels = kmeans.fit_predict(X)
 
@@ -69,14 +69,15 @@ plt.title(f"K-means Classification - ({n_clusters} clusters)")
 plt.axis('off')
 plt.show()
 
+accuracy = clustering_accuracy(gt, classification)
+print(f"Clustering Accuracy: {accuracy:.4f}")
+
+'''
+
 plt.figure(figsize=(6,5))
 plt.imshow(gt, cmap='jet')
 plt.title("Ground Truth")
 plt.axis('off')
 plt.show()
-
-
-accuracy = clustering_accuracy(gt, classification)
-print(f"Clustering Accuracy: {accuracy:.4f}")
 
 '''
