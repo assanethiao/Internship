@@ -13,6 +13,7 @@ gt = np.load('..\\dataset\\IPgt.npy')
 # Preprocessing
 M, N, K = data.shape
 
+data_pad = np.pad(data, ((1,1),(1,1),(0,0)), mode='reflect') 
 '''
 new_data = np.copy(data)
 
@@ -31,15 +32,14 @@ X = new_data.reshape(M * N, K)
 '''
 features = []
 
-for i in range(1, M-1):
-    for j in range(1, N-1):
+for i in range(1, M+1):
+    for j in range(1, N+1):
 
-        centre = data[i,j,:]
-        haut   = data[i-1,j,:]
-        bas    = data[i+1,j,:]
-        gauche = data[i,j-1,:]
-        droite = data[i,j+1,:]
-
+        centre = data_pad[i,j,:]
+        haut   = data_pad[i-1,j,:]
+        bas    = data_pad[i+1,j,:]
+        gauche = data_pad[i,j-1,:]
+        droite = data_pad[i,j+1,:]
         feature = np.concatenate([centre, haut, bas, gauche, droite])
 
         features.append(feature)
