@@ -119,8 +119,8 @@ def compute_CIP(classification):
 
 def compute_vraisemblance(classification):
     """
-    Mesure combinée : produit de (1 - CE) et (1 - CIP).
-    Interprétée comme une probabilité. On cherche à MAXIMISER.
+    Mesure combinée : produit de (1 - CE) et (1 - CIP). Interprétée comme une probabilité. On cherche à MAXIMISER.
+
     """
     ce  = compute_CE(classification)
     cip = compute_CIP(classification)
@@ -146,10 +146,7 @@ def clustering_accuracy(gt, pred):
 def optimize_weights(data_norm, gt, n_clusters=16, n_iter=200, seed=0):
     """
     Recherche aléatoire des poids c_k (un par bande spectrale).
-    À chaque itération :
-      - on tire aléatoirement de nouveaux poids
-      - on calcule la vraisemblance (CE + CIP)
-      - on garde les poids qui maximisent la vraisemblance
+    À chaque itération : - on tire aléatoirement de nouveaux poids - on calcule la vraisemblance (CE + CIP) - on garde les poids qui maximisent la vraisemblance
     """
     rng = np.random.RandomState(seed)
     K   = data_norm.shape[2]
@@ -208,7 +205,6 @@ print(f"OAC = {final_oac:.4f} | CE = {final_ce:.4f}")
 
 
 # VISUALISATIONS
-
 
 # Cartes de classification
 plt.figure(figsize=(14, 5))
