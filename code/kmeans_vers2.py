@@ -65,11 +65,7 @@ def run_kmeans(X, n_clusters, seed=42):
     init_idx = rng.choice(len(X), n_clusters, replace=False)
     init_centers = X[init_idx]
 
-    kmeans = KMeans(
-        n_clusters=n_clusters,
-        init=init_centers,
-        n_init=1,
-        random_state=seed
+    kmeans = KMeans(n_clusters=n_clusters, init=init_centers, n_init=1, random_state=seed
     )
     labels = kmeans.fit_predict(X)
     return labels.reshape(M, N)
@@ -184,7 +180,7 @@ def optimize_weights(data_norm, gt, n_clusters=16, n_iter=200, seed=0):
             best_classif = classif
             print(f"Iter {t:03d} | CE={compute_CE(classif):.4f} | "
                   f"OAC={clustering_accuracy(gt, classif):.4f} | "
-                  f"score={score:.4f}  ✓ amélioration")
+                  f"score={score:.4f} amélioration")
 
         history_ce.append(compute_CE(classif))
         history_oac.append(clustering_accuracy(gt, classif))
@@ -199,7 +195,7 @@ n_clusters = 16
 
 print("=== Optimisation en cours ===")
 best_classif, best_weights, history_ce, history_oac, history_score = \
-    optimize_weights(data_norm, gt, n_clusters=n_clusters, n_iter=200)
+    optimize_weights(data_norm, gt, n_clusters=n_clusters, n_iter=1)
 
 final_oac = clustering_accuracy(gt, best_classif)
 final_ce  = compute_CE(best_classif)
@@ -229,7 +225,7 @@ plt.figure(figsize=(7, 5))
 plt.scatter(history_ce, history_oac, alpha=0.4, s=10, c='steelblue')
 plt.xlabel("CE (mesure de vraisemblance)")
 plt.ylabel("OAC (performance réelle)")
-plt.title("Relation CE ↔ OAC\n(tendance attendue : CE↓ → OAC↑)")
+plt.title("Relation CE - OAC")
 plt.grid(True)
 plt.tight_layout()
 plt.show()
