@@ -30,6 +30,7 @@ for i in range(1, M-1):
 
 X = new_data.reshape(M * N, K)
 '''
+
 features = []
 
 for i in range(1, M+1):
