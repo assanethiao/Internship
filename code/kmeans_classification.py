@@ -13,7 +13,8 @@ gt = np.load('..\\dataset\\IPgt.npy')
 # Preprocessing
 M, N, K = data.shape
 
-data_pad = np.pad(data, ((1,1),(1,1),(0,0)), mode='reflect') 
+data_pad = np.pad(data, ((1,1),(1,1),(0,0)), mode='reflect')
+
 '''
 new_data = np.copy(data)
 
@@ -36,13 +37,20 @@ features = []
 for i in range(1, M+1):
     for j in range(1, N+1):
 
+
+        centre = data_pad[i,j,:]
+        haut   = data_pad[i-1,j,:]
+        bas    = data_pad[i+1,j,:]
+        gauche = data_pad[i,j-1,:]
+        droite = data_pad[i,j+1,:]
+
+
         centre = data_pad[i,j,:]
         haut   = data_pad[i-1,j,:]
         bas    = data_pad[i+1,j,:]
         gauche = data_pad[i,j-1,:]
         droite = data_pad[i,j+1,:]
         feature = np.concatenate([centre, haut, bas, gauche, droite])
-
         features.append(feature)
 
 X = np.array(features)
@@ -86,7 +94,7 @@ for n_clusters in range(2, 17):
 '''
 
 # K-means clusturing
-n_clusters =  16 # à tester
+n_clusters =  15 # à tester
 kmeans = KMeans(n_clusters=n_clusters, random_state=0, n_init=20)
 labels = kmeans.fit_predict(X)
 

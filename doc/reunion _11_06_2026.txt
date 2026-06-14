@@ -1,0 +1,17 @@
+note reunion 11/06/2026
+
+Les indicateurs sont convaincants mais les résultats doivent être améliorer
+CE y a un soucis, on doit la baisser mais pas considérablement 
+quelques soit les valurs de Ck ils vont pas diminuer le CE
+Pour le produit pour calculer la vraisemblance, 
+
+Les points Ck : une image nest pas homogène et terme spectre, 
+on peut avoir de Ck qui donnent d"e limportance aux longeurs d'ondes voisins comme on l'a fait averc les pixels
+Les Ck peuvent etre plus important sans les modifer njuste en modifiant l'optimisation
+Plus de flexibilité pour les Ck: par exemle on fait un e classification et on obtuient de Ck , on fait une autere , on o btient dautre Ck, puis on combine ces Ck pour faire une nouvelle classifiation*
+
+Il faut aussi visualiser les Ck pour voir les longueurs d'ondes important, "et les selectionner
+
+Dautres indicateurs, faire des decoupes en region connexe, une region  audssi normalement n'est pas filaire il doit avoir une forme géometrique
+
+Recuit simulé : 

@@ -13,7 +13,7 @@ M, N, K = data.shape
 # Data normalization (per band)
 
 def normalize(data):
-    """Normalise chaque bande spectrale pour avoir moyenne 0, écart-type 1."""
+    """Normalise chaque bande spectrale pour avoir moyenne 0, écart-type 1 """
     data_norm = np.zeros_like(data, dtype=np.float64)
     for k in range(data.shape[2]):
         band = data[:, :, k].astype(np.float64)
@@ -65,12 +65,7 @@ def run_kmeans(X, n_clusters, seed=42):
     init_idx = rng.choice(len(X), n_clusters, replace=False)
     init_centers = X[init_idx]
 
-    kmeans = KMeans(
-        n_clusters=n_clusters,
-        init=init_centers,
-        n_init=1,
-        random_state=seed
-    )
+    kmeans = KMeans(n_clusters=n_clusters, init=init_centers, n_init=1, random_state=seed)
     labels = kmeans.fit_predict(X)
     return labels.reshape(M, N)
 
@@ -119,8 +114,7 @@ def compute_CIP(classification):
 
 def compute_vraisemblance(classification):
     """
-    Mesure combinée : produit de (1 - CE) et (1 - CIP).
-    Interprétée comme une probabilité. On cherche à MAXIMISER.
+    Mesure combinée : produit de (1 - CE) et (1 - CIP). Interprétée comme une probabilité. On cherche à MAXIMISER.
     """
     ce  = compute_CE(classification)
     cip = compute_CIP(classification)
@@ -146,10 +140,7 @@ def clustering_accuracy(gt, pred):
 def optimize_weights(data_norm, gt, n_clusters=16, n_iter=200, seed=0):
     """
     Recherche aléatoire des poids c_k (un par bande spectrale).
-    À chaque itération :
-      - on tire aléatoirement de nouveaux poids
-      - on calcule la vraisemblance (CE + CIP)
-      - on garde les poids qui maximisent la vraisemblance
+    À chaque itération : - on tire aléatoirement de nouveaux poids - on calcule la vraisemblance (CE + CIP) - on garde les poids qui maximisent la vraisemblance
     """
     rng = np.random.RandomState(seed)
     K   = data_norm.shape[2]
@@ -184,7 +175,7 @@ def optimize_weights(data_norm, gt, n_clusters=16, n_iter=200, seed=0):
             best_classif = classif
             print(f"Iter {t:03d} | CE={compute_CE(classif):.4f} | "
                   f"OAC={clustering_accuracy(gt, classif):.4f} | "
-                  f"score={score:.4f}  ✓ amélioration")
+                  f"score={score:.4f} amélioration")
 
         history_ce.append(compute_CE(classif))
         history_oac.append(clustering_accuracy(gt, classif))
@@ -196,10 +187,11 @@ def optimize_weights(data_norm, gt, n_clusters=16, n_iter=200, seed=0):
 # LANCEMENT
 
 n_clusters = 16
+n_iter     = 200
 
 print("=== Optimisation en cours ===")
 best_classif, best_weights, history_ce, history_oac, history_score = \
-    optimize_weights(data_norm, gt, n_clusters=n_clusters, n_iter=200)
+    optimize_weights(data_norm, gt, n_clusters=n_clusters, n_iter=n_iter, seed=0)
 
 final_oac = clustering_accuracy(gt, best_classif)
 final_ce  = compute_CE(best_classif)
@@ -208,7 +200,6 @@ print(f"OAC = {final_oac:.4f} | CE = {final_ce:.4f}")
 
 
 # VISUALISATIONS
-
 
 # Cartes de classification
 plt.figure(figsize=(14, 5))
@@ -224,12 +215,12 @@ plt.axis('off')
 plt.tight_layout()
 plt.show()
 
-# Courbe CE vs OAC (relation vraisemblance / performance réelle)
+# Courbe CE vs OAC
 plt.figure(figsize=(7, 5))
 plt.scatter(history_ce, history_oac, alpha=0.4, s=10, c='steelblue')
 plt.xlabel("CE (mesure de vraisemblance)")
 plt.ylabel("OAC (performance réelle)")
-plt.title("Relation CE ↔ OAC\n(tendance attendue : CE↓ → OAC↑)")
+plt.title("Relation CE - OAC")
 plt.grid(True)
 plt.tight_layout()
 plt.show()
@@ -240,6 +231,38 @@ plt.plot(history_score, color='darkorange')
 plt.xlabel("Itération")
 plt.ylabel("Score vraisemblance (1-CE)×(1-CIP)")
 plt.title("Évolution du score de vraisemblance")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Visualisation des poids spectraux optimisés c_k
+
+plt.figure(figsize=(12,4))
+plt.plot(best_weights, linewidth=2)
+plt.xlabel("Indice de bande spectrale k")
+plt.ylabel("Poids c_k")
+plt.title("Poids spectraux optimisés")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Visualisation des bandes les plus importantes (c_k > 1)
+plt.figure(figsize=(12,4))
+plt.bar(np.arange(K), best_weights)
+plt.xlabel("Indice de bande spectrale k")
+plt.ylabel("Poids c_k")
+plt.title("Importance des bandes spectrales")
+plt.grid(True, axis='y')
+plt.tight_layout()
+plt.show()
+
+# Visualisation vraisemblance vs OAC
+
+plt.figure(figsize=(7, 5))
+plt.scatter(history_score, history_oac, alpha=0.4, s=10, c='steelblue')
+plt.xlabel("Score vraisemblance")
+plt.ylabel("OAC (performance réelle)")
+plt.title("Relation Score - OAC")
 plt.grid(True)
 plt.tight_layout()
 plt.show()
