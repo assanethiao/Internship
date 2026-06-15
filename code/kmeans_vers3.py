@@ -163,7 +163,7 @@ def optimize_weights_recuit(data_norm, gt, n_clusters=16, n_iter=500, seed=0):
     hist_sigma = []
 
     # Paramètres du recuit
-    sigma_init = 1.0      # écart-type initial pour l'exploration
+    sigma_init = 0.5   # écart-type initial pour l'exploration
     sigma_min  = 0.001    # écart-type minimal
     n_plateau  = 0        # compteur d'itérations sans amélioration
     sigma      = sigma_init
@@ -201,13 +201,13 @@ def optimize_weights_recuit(data_norm, gt, n_clusters=16, n_iter=500, seed=0):
             best_oac     = oac
             n_plateau    = 0
             print(f"Iter {t:03d} | CE={ce:.4f} | OAC={oac:.4f} "
-                  f"| score={score:.4f} | sigma={sigma:.4f}  ✓")
+                  f"| score={score:.4f} | sigma={sigma:.4f}  optimisé")
         else:
             n_plateau += 1
 
         # Réduction de sigma tous les 20 pas sans amélioration
         if n_plateau > 0 and n_plateau % 20 == 0:
-            sigma = max(sigma * 0.5, sigma_min)
+            sigma = max(sigma * 0.2, sigma_min)
 
         # Redémarrage si sigma trop petit (exploration épuisée)
         if sigma <= sigma_min:
@@ -224,7 +224,7 @@ def optimize_weights_recuit(data_norm, gt, n_clusters=16, n_iter=500, seed=0):
 # LANCEMENT
 
 n_clusters = 16
-n_iter     = 200
+n_iter     = 500
 
 print("=== Optimisation en cours ===")
 best_classif, best_weights, history_ce, history_oac, history_score, history_sigma = optimize_weights_recuit(data_norm, gt, n_clusters=n_clusters, n_iter=n_iter, seed=0)
