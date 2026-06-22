@@ -187,7 +187,7 @@ def optimize_weights(data_norm, gt, n_clusters=16, n_iter=200, seed=0):
 # LANCEMENT
 
 n_clusters = 16
-n_iter     = 200
+n_iter     = 40000
 
 print("=== Optimisation en cours ===")
 best_classif, best_weights, history_ce, history_oac, history_score = \
