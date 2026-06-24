@@ -296,10 +296,10 @@ if __name__ == "__main__":
 
     # Étape 1 : calibration mu/sigma pour le score normalisé
     print("=== Calibration ===")
-    calibration = calibrate_score(data_norm, n_clusters, n_samples=50)
+    calibration = calibrate_score(data_norm, n_clusters, n_samples=30)
 
     # Étape 2 : optimisation avec direction privilégiée + score normalisé
     print("\n=== Optimisation (direction privilégiée) ===")
-    result = optimize_weights_directional(data_norm, gt, n_clusters=n_clusters, n_iter=200, w_direction=0.3, calibration=calibration)
+    result = optimize_weights_directional(data_norm, gt, n_clusters=n_clusters, n_iter=200, w_direction=0.4, calibration=calibration)
 
     plot_results(result, gt)
