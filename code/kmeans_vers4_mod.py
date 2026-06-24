@@ -1,3 +1,8 @@
+"""
+kmeans_vers4.py
+Module de classification non-supervisée d'images hyperspectrales
+avec recuit simulé à direction privilégiée + coordonnées spatiales (alpha).
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
@@ -6,7 +11,7 @@ from scipy.optimize import linear_sum_assignment
 
 
 # ─────────────────────────────────────────────
-# CHARGEMENT ET NORMALISATION (pas de variables globales implicites)
+# CHARGEMENT ET NORMALISATION
 # ─────────────────────────────────────────────
 def load_data(data_path, gt_path):
     data = np.load(data_path)
@@ -15,7 +20,6 @@ def load_data(data_path, gt_path):
 
 
 def normalize(data):
-    """Normalise chaque bande spectrale : moyenne 0, écart-type 1."""
     data_norm = np.zeros_like(data, dtype=np.float64)
     for k in range(data.shape[2]):
         band = data[:, :, k].astype(np.float64)
@@ -25,29 +29,44 @@ def normalize(data):
 
 
 # ─────────────────────────────────────────────
-# FEATURES
+# FEATURES (spectral + spatial, alpha contrôle l'importance du spatial)
 # ─────────────────────────────────────────────
-def build_features(data, weights=None):
-    """Pour chaque pixel : concatène [centre, haut, bas, gauche, droite]."""
+def build_features(data, weights=None, alpha=0.0):
+    """
+    Pour chaque pixel : concatène [centre, haut, bas, gauche, droite]
+    PUIS ajoute les coordonnées spatiales (i,j) normalisées * alpha.
+
+    alpha=0.0 → comportement identique à avant (pas de spatial).
+    alpha>0.0 → ajoute l'information de position.
+    """
     M, N, K = data.shape
     if weights is not None:
         data = data * weights[np.newaxis, np.newaxis, :]
     data_pad = np.pad(data, ((1, 1), (1, 1), (0, 0)), mode="reflect")
+
+    coords_i = (np.arange(M) - M/2) / (M / (2 * np.sqrt(3)))
+    coords_j = (np.arange(N) - N/2) / (N / (2 * np.sqrt(3)))
+
     features = []
     for i in range(1, M + 1):
         for j in range(1, N + 1):
-            features.append(np.concatenate([
+            spectral = np.concatenate([
                 data_pad[i,   j,   :],
                 data_pad[i-1, j,   :],
                 data_pad[i+1, j,   :],
                 data_pad[i,   j-1, :],
                 data_pad[i,   j+1, :]
-            ]))
+            ])
+            if alpha > 0:
+                spatial = np.array([alpha * coords_i[i-1],
+                                     alpha * coords_j[j-1]])
+                features.append(np.concatenate([spectral, spatial]))
+            else:
+                features.append(spectral)
     return np.array(features)
 
 
 def run_kmeans(X, n_clusters, M, N, seed=42):
-    """K-means déterministe (init fixe via seed)."""
     rng = np.random.RandomState(seed)
     init_idx = rng.choice(len(X), n_clusters, replace=False)
     kmeans = KMeans(n_clusters=n_clusters, init=X[init_idx],
@@ -56,23 +75,16 @@ def run_kmeans(X, n_clusters, M, N, seed=42):
 
 
 # ─────────────────────────────────────────────
-# MÉTRIQUES (CE et CIP calculés une seule fois, ensemble)
+# MÉTRIQUES
 # ─────────────────────────────────────────────
 def compute_CE_CIP(classification):
-    """
-    Calcule CE et CIP en une seule passe pour éviter les calculs redondants.
-    Retourne (ce, cip).
-    """
     M, N = classification.shape
-
     up    = np.roll(classification,  1, axis=0)
     down  = np.roll(classification, -1, axis=0)
     left  = np.roll(classification,  1, axis=1)
     right = np.roll(classification, -1, axis=1)
-
-    diff_4 = ((classification != up)   | (classification != down) |
-              (classification != left) | (classification != right))
-    ce = diff_4.mean()
+    ce = ((classification != up)   | (classification != down) |
+          (classification != left) | (classification != right)).mean()
 
     pad = np.pad(classification, 1, mode='edge')
     isolated = np.ones((M, N), dtype=bool)
@@ -83,7 +95,6 @@ def compute_CE_CIP(classification):
             neighbor = pad[1+di:M+1+di, 1+dj:N+1+dj]
             isolated &= (classification != neighbor)
     cip = isolated.mean()
-
     return ce, cip
 
 
@@ -96,66 +107,37 @@ def clustering_accuracy(gt, pred):
 
 
 # ─────────────────────────────────────────────
-# CALIBRAGE DU SCORE (mu_i, sigma_i estimés par tirage aléatoire pur)
+# CALIBRAGE DU SCORE (dépend de alpha, donc à refaire pour chaque alpha)
 # ─────────────────────────────────────────────
-def calibrate_score(data_norm, n_clusters, n_samples=30, seed=999):
-    """
-    Estime mu_CE, sigma_CE, mu_CIP, sigma_CIP par tirages aléatoires
-    PURS (sans optimisation), comme proposé par l'encadrant.
-    """
+def calibrate_score(data_norm, n_clusters, alpha=0.0, n_samples=30, seed=999):
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
-
     ce_samples, cip_samples = [], []
     for s in range(n_samples):
         weights = rng.uniform(0, 2, size=K)
-        X = build_features(data_norm, weights)
+        X = build_features(data_norm, weights, alpha=alpha)
         classif = run_kmeans(X, n_clusters, M, N, seed=s)
         ce, cip = compute_CE_CIP(classif)
         ce_samples.append(ce)
         cip_samples.append(cip)
-
     mu_ce,  sigma_ce  = np.mean(ce_samples),  np.std(ce_samples)
     mu_cip, sigma_cip = np.mean(cip_samples), np.std(cip_samples)
-
-    print(f"Calibration : mu_CE={mu_ce:.4f}, sigma_CE={sigma_ce:.4f} | "
-          f"mu_CIP={mu_cip:.4f}, sigma_CIP={sigma_cip:.4f}")
-
     return mu_ce, sigma_ce, mu_cip, sigma_cip
 
 
 def compute_score_normalized(ce, cip, mu_ce, sigma_ce, mu_cip, sigma_cip):
-    """
-    Score normalisé proposé par l'encadrant (équation 1) :
-    score = (1/I) * sum_i (mu_i - z_i) / sigma_i
-    Ici I=2, z_0=CE, z_1=CIP.
-    """
     term_ce  = (mu_ce  - ce)  / sigma_ce  if sigma_ce  > 0 else 0
     term_cip = (mu_cip - cip) / sigma_cip if sigma_cip > 0 else 0
     return 0.5 * (term_ce + term_cip)
 
 
 # ─────────────────────────────────────────────
-# RECUIT SIMULÉ AVEC DIRECTION PRIVILÉGIÉE (proposition 1)
+# RECUIT SIMULÉ À DIRECTION PRIVILÉGIÉE (alpha fixé, passé en paramètre)
 # ─────────────────────────────────────────────
-def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
+def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300,
                                    seed=0, w_direction=0.5,
-                                   calibration=None):
-    """
-    Recuit simulé à direction privilégiée.
-
-    Au lieu de tirer uniquement du bruit gaussien isotrope, on mélange :
-      - une exploration dans la direction qui a fait progresser la solution
-        la dernière fois (delta_x normalisé)
-      - une exploration aléatoire pure (comme avant)
-
-    w_direction : poids donné à la direction privilégiée (entre 0 et 1).
-                  0.5 = autant de poids aux deux termes (proposition de
-                  l'encadrant). Une valeur plus faible explore davantage.
-
-    calibration : tuple (mu_ce, sigma_ce, mu_cip, sigma_cip).
-                  Si None, on utilise l'ancien score (1-CE)*(1-CIP).
-    """
+                                   alpha=0.0, calibration=None,
+                                   verbose=True):
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
 
@@ -169,15 +151,12 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
             score = (1 - ce) * (1 - cip)
         return score, ce, cip
 
-    # Initialisation
     best_weights = np.ones(K)
-    X0 = build_features(data_norm, best_weights)
+    X0 = build_features(data_norm, best_weights, alpha=alpha)
     best_classif = run_kmeans(X0, n_clusters, M, N)
     best_score, best_ce, best_cip = score_fn(best_classif)
     best_oac = clustering_accuracy(gt, best_classif)
 
-    # delta_x : dernière direction qui a amélioré la solution.
-    # Initialisé à un vecteur aléatoire normalisé (pas de direction connue au début).
     delta_x = rng.randn(K)
     delta_x /= np.linalg.norm(delta_x)
 
@@ -187,26 +166,21 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
     sigma, sigma_min = 0.5, 1e-4
     n_plateau = 0
 
-    print(f"Départ | CE={best_ce:.4f} | CIP={best_cip:.4f} | "
-          f"OAC={best_oac:.4f} | score={best_score:.4f}")
+    if verbose:
+        print(f"[alpha={alpha}] Départ | CE={best_ce:.4f} | CIP={best_cip:.4f} "
+              f"| OAC={best_oac:.4f} | score={best_score:.4f}")
 
     for t in range(1, n_iter + 1):
-
-        # Tirage 1 : direction privilégiée (delta_x normalisé) * bruit scalaire
         b_prime = rng.randn()
         direction_term = b_prime * delta_x
-
-        # Tirage 2 : bruit isotrope classique
         b_t = rng.randn(K)
-
-        # Combinaison pondérée (équation 3 de l'encadrant)
         noise = sigma * (w_direction * direction_term + (1 - w_direction) * b_t)
 
         new_weights = np.maximum(best_weights + noise, 0)
         if new_weights.sum() == 0:
             new_weights = np.ones(K)
 
-        X_new = build_features(data_norm, new_weights)
+        X_new = build_features(data_norm, new_weights, alpha=alpha)
         classif = run_kmeans(X_new, n_clusters, M, N, seed=t)
         score, ce, cip = score_fn(classif)
         oac = clustering_accuracy(gt, classif)
@@ -218,17 +192,16 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
         hist_sigma.append(sigma)
 
         if score > best_score:
-            # Met à jour la direction privilégiée
             delta_x_new = new_weights - best_weights
             norm = np.linalg.norm(delta_x_new)
             if norm > 1e-12:
                 delta_x = delta_x_new / norm
-
             best_score, best_weights = score, new_weights
             best_classif, best_ce, best_cip, best_oac = classif, ce, cip, oac
             n_plateau = 0
-            print(f"Iter {t:04d} | CE={ce:.4f} | CIP={cip:.4f} | "
-                  f"OAC={oac:.4f} | score={score:.4f} | sigma={sigma:.4f} ✓")
+            if verbose:
+                print(f"[alpha={alpha}] Iter {t:04d} | CE={ce:.4f} | "
+                      f"CIP={cip:.4f} | OAC={oac:.4f} | score={score:.4f} ✓")
         else:
             n_plateau += 1
             if n_plateau % 20 == 0:
@@ -236,11 +209,12 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
             if sigma <= sigma_min:
                 sigma, n_plateau = 0.1, 0
 
-    print(f"\n=== Résultat final ===")
-    print(f"OAC={best_oac:.4f} | CE={best_ce:.4f} | CIP={best_cip:.4f} | "
-          f"score={best_score:.4f}")
+    if verbose:
+        print(f"[alpha={alpha}] Final | OAC={best_oac:.4f} | CE={best_ce:.4f} | "
+              f"CIP={best_cip:.4f} | score={best_score:.4f}\n")
 
     return {
+        "alpha": alpha,
         "classif": best_classif,
         "weights": best_weights,
         "hist_ce": hist_ce,
@@ -248,19 +222,80 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
         "hist_oac": hist_oac,
         "hist_score": hist_score,
         "hist_sigma": hist_sigma,
+        "final_oac": best_oac,
+        "final_ce": best_ce,
     }
 
 
 # ─────────────────────────────────────────────
-# VISUALISATIONS
+# BALAYAGE D'ALPHA — on lance l'optimisation complète pour chaque alpha
 # ─────────────────────────────────────────────
-def plot_results(result, gt):
-    classif = result["classif"]
-    final_oac = result["hist_oac"][-1] if result["hist_oac"] else None
+def sweep_alpha(data_norm, gt, alphas, n_clusters=16, n_iter=300,
+                 w_direction=0.5, n_iter_calib=30):
+    """
+    Pour chaque valeur d'alpha :
+      1. calibre mu/sigma (alpha modifie l'échelle des features, donc
+         la calibration doit être refaite pour chaque alpha)
+      2. lance le recuit simulé à direction privilégiée
+      3. garde le résultat
+    """
+    resultats = []
+    for alpha in alphas:
+        print(f"\n========== ALPHA = {alpha} ==========")
+        calibration = calibrate_score(data_norm, n_clusters, alpha=alpha,
+                                       n_samples=n_iter_calib)
+        result = optimize_weights_directional(
+            data_norm, gt, n_clusters=n_clusters, n_iter=n_iter,
+            w_direction=w_direction, alpha=alpha, calibration=calibration,
+            verbose=True
+        )
+        resultats.append(result)
+    return resultats
 
+
+def plot_alpha_comparison(resultats, gt):
+    """Affiche une grille de classifications, une par alpha, + ground truth."""
+    n = len(resultats)
+    ncols = min(n + 1, 4)
+    nrows = (n + 1 + ncols - 1) // ncols
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5*ncols, 5*nrows))
+    axes = np.array(axes).flatten()
+
+    for idx, res in enumerate(resultats):
+        axes[idx].imshow(res["classif"], cmap='jet')
+        axes[idx].set_title(f"alpha={res['alpha']}\n"
+                            f"OAC={res['final_oac']:.4f} | CE={res['final_ce']:.4f}",
+                            fontsize=10)
+        axes[idx].axis('off')
+
+    axes[n].imshow(gt, cmap='jet')
+    axes[n].set_title("Ground Truth")
+    axes[n].axis('off')
+
+    for idx in range(n+1, len(axes)):
+        axes[idx].axis('off')
+
+    plt.suptitle("Comparaison des alpha (direction privilégiée)", fontsize=14)
+    plt.tight_layout()
+    plt.show()
+
+    # Tableau récapitulatif
+    print("\n=== Tableau récapitulatif ===")
+    print(f"{'alpha':>8} | {'OAC':>8} | {'CE':>8}")
+    print("-" * 30)
+    for res in resultats:
+        print(f"{res['alpha']:>8.2f} | {res['final_oac']:>8.4f} | "
+              f"{res['final_ce']:>8.4f}")
+
+
+def plot_best_result(best_result, gt):
+    classif = best_result["classif"]
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     axes[0].imshow(classif, cmap='jet')
-    axes[0].set_title(f"Meilleure classification\nOAC={final_oac:.4f}")
+    axes[0].set_title(f"Meilleur résultat (alpha={best_result['alpha']})\n"
+                      f"OAC={best_result['final_oac']:.4f} | "
+                      f"CE={best_result['final_ce']:.4f}")
     axes[0].axis('off')
     axes[1].imshow(gt, cmap='jet')
     axes[1].set_title("Ground Truth")
@@ -268,34 +303,16 @@ def plot_results(result, gt):
     plt.tight_layout()
     plt.show()
 
-    # CE et CIP au cours des itérations (comme la Figure 1 du document)
     fig, axes = plt.subplots(1, 3, figsize=(18, 4))
-    axes[0].plot(result["hist_cip"], color='darkorange')
+    axes[0].plot(best_result["hist_cip"], color='darkorange')
     axes[0].set_title("Évolution de CIP")
-    axes[0].set_xlabel("Itération")
     axes[0].grid(True)
-
-    axes[1].plot(result["hist_ce"], color='steelblue')
+    axes[1].plot(best_result["hist_ce"], color='steelblue')
     axes[1].set_title("Évolution de CE")
-    axes[1].set_xlabel("Itération")
     axes[1].grid(True)
-
-    axes[2].plot(result["hist_sigma"], color='purple')
+    axes[2].plot(best_result["hist_sigma"], color='purple')
     axes[2].set_title("Évolution de sigma")
-    axes[2].set_xlabel("Itération")
     axes[2].grid(True)
-
-    plt.tight_layout()
-    plt.show()
-
-    # Score vs OAC
-    plt.figure(figsize=(7, 5))
-    plt.scatter(result["hist_score"], result["hist_oac"],
-               alpha=0.4, s=10, c='steelblue')
-    plt.xlabel("Score")
-    plt.ylabel("OAC")
-    plt.title("Relation Score - OAC (direction privilégiée)")
-    plt.grid(True)
     plt.tight_layout()
     plt.show()
 
@@ -309,12 +326,19 @@ if __name__ == "__main__":
     data_norm = normalize(data)
     n_clusters = 16
 
-    # Étape 1 : calibration mu/sigma pour le score normalisé
-    print("=== Calibration ===")
-    calibration = calibrate_score(data_norm, n_clusters, n_samples=30)
+    # Balayage : on teste plusieurs alpha, chacun avec sa propre
+    # optimisation complète par direction privilégiée
+    alphas = [0.0, 0.5, 1.0, 2.0, 5.0, 8.0]
 
-    # Étape 2 : optimisation avec direction privilégiée + score normalisé
-    print("\n=== Optimisation (direction privilégiée) ===")
-    result = optimize_weights_directional(data_norm, gt, n_clusters=n_clusters, n_iter=200, w_direction=0.4, calibration=calibration)
+    resultats = sweep_alpha(data_norm, gt, alphas,
+                            n_clusters=n_clusters, n_iter=300,
+                            w_direction=0.5)
 
-    plot_results(result, gt)
+    plot_alpha_comparison(resultats, gt)
+
+    # Sélection du meilleur alpha (selon OAC, juste pour visualiser —
+    # rappel : en pratique on ne devrait pas choisir alpha avec gt)
+    best_result = max(resultats, key=lambda r: r["final_oac"])
+    print(f"\nMeilleur alpha trouvé : {best_result['alpha']}")
+
+    plot_best_result(best_result, gt)
