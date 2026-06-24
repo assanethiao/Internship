@@ -208,7 +208,7 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
             # Met à jour la direction privilégiée
             delta_x_new = new_weights - best_weights
             norm = np.linalg.norm(delta_x_new)
-            if norm > 1e-12:
+            if norm > 1e-4:
                 delta_x = delta_x_new / norm
 
             best_score, best_weights = score, new_weights
@@ -218,8 +218,8 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
                   f"OAC={oac:.4f} | score={score:.4f} | sigma={sigma:.4f} ✓")
         else:
             n_plateau += 1
-            if n_plateau % 20 == 0:
-                sigma = max(sigma * 0.3, sigma_min)
+            if n_plateau % 30 == 0:
+                sigma = max(sigma * 0.5, sigma_min)
             if sigma <= sigma_min:
                 sigma, n_plateau = 0.1, 0
 
@@ -298,6 +298,6 @@ if __name__ == "__main__":
 
     # Étape 2 : optimisation avec direction privilégiée + score normalisé
     print("\n=== Optimisation (direction privilégiée) ===")
-    result = optimize_weights_directional(data_norm, gt, n_clusters=n_clusters, n_iter=200, w_direction=0.4, calibration=calibration)
+    result = optimize_weights_directional(data_norm, gt, n_clusters=n_clusters, n_iter=300, w_direction=0.5, calibration=calibration)
 
     plot_results(result, gt)
