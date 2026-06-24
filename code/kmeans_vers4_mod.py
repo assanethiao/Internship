@@ -4,10 +4,8 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import confusion_matrix
 from scipy.optimize import linear_sum_assignment
 
-
-# ─────────────────────────────────────────────
 # CHARGEMENT ET NORMALISATION
-# ─────────────────────────────────────────────
+
 def load_data(data_path, gt_path):
     data = np.load(data_path)
     gt   = np.load(gt_path)
@@ -23,13 +21,12 @@ def normalize(data):
     return data_norm
 
 
-# ─────────────────────────────────────────────
 # FEATURES (spectral + spatial, alpha contrôle l'importance du spatial)
-# ─────────────────────────────────────────────
+
 def build_features(data, weights=None, alpha=0.0):
     """
     Pour chaque pixel : concatène [centre, haut, bas, gauche, droite]
-    PUIS ajoute les coordonnées spatiales (i,j) normalisées * alpha.
+    Puis on ajoute les coordonnées spatiales (i,j) normalisées * alpha.
 
     alpha=0.0 → comportement identique à avant (pas de spatial).
     alpha>0.0 → ajoute l'information de position.
@@ -69,9 +66,8 @@ def run_kmeans(X, n_clusters, M, N, seed=42):
     return kmeans.fit_predict(X).reshape(M, N)
 
 
-# ─────────────────────────────────────────────
 # MÉTRIQUES
-# ─────────────────────────────────────────────
+
 def compute_CE_CIP(classification):
     M, N = classification.shape
     up    = np.roll(classification,  1, axis=0)
@@ -101,9 +97,8 @@ def clustering_accuracy(gt, pred):
     return cm[r, c].sum() / cm.sum()
 
 
-# ─────────────────────────────────────────────
 # CALIBRAGE DU SCORE (dépend de alpha, donc à refaire pour chaque alpha)
-# ─────────────────────────────────────────────
+
 def calibrate_score(data_norm, n_clusters, alpha=0.0, n_samples=30, seed=999):
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
@@ -126,9 +121,8 @@ def compute_score_normalized(ce, cip, mu_ce, sigma_ce, mu_cip, sigma_cip):
     return 0.5 * (term_ce + term_cip)
 
 
-# ─────────────────────────────────────────────
-# RECUIT SIMULÉ À DIRECTION PRIVILÉGIÉE (alpha fixé, passé en paramètre)
-# ─────────────────────────────────────────────
+# RECUIT SIMULÉ À DIRECTION PRIVILÉGIÉE 
+
 def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300,
                                    seed=0, w_direction=0.5,
                                    alpha=0.0, calibration=None,
@@ -222,17 +216,17 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300,
     }
 
 
-# ─────────────────────────────────────────────
-# BALAYAGE D'ALPHA — on lance l'optimisation complète pour chaque alpha
-# ─────────────────────────────────────────────
+
+# on lance l'optimisation complète pour chaque alpha
+
 def sweep_alpha(data_norm, gt, alphas, n_clusters=16, n_iter=300,
                  w_direction=0.5, n_iter_calib=30):
     """
     Pour chaque valeur d'alpha :
-      1. calibre mu/sigma (alpha modifie l'échelle des features, donc
+      calibre mu/sigma (alpha modifie l'échelle des features, donc
          la calibration doit être refaite pour chaque alpha)
-      2. lance le recuit simulé à direction privilégiée
-      3. garde le résultat
+      lance le recuit simulé à direction privilégiée
+      garde le résultat
     """
     resultats = []
     for alpha in alphas:
@@ -248,49 +242,12 @@ def sweep_alpha(data_norm, gt, alphas, n_clusters=16, n_iter=300,
     return resultats
 
 
-def plot_alpha_comparison(resultats, gt):
-    """Affiche une grille de classifications, une par alpha, + ground truth."""
-    n = len(resultats)
-    ncols = min(n + 1, 4)
-    nrows = (n + 1 + ncols - 1) // ncols
-
-    fig, axes = plt.subplots(nrows, ncols, figsize=(5*ncols, 5*nrows))
-    axes = np.array(axes).flatten()
-
-    for idx, res in enumerate(resultats):
-        axes[idx].imshow(res["classif"], cmap='jet')
-        axes[idx].set_title(f"alpha={res['alpha']}\n"
-                            f"OAC={res['final_oac']:.4f} | CE={res['final_ce']:.4f}",
-                            fontsize=10)
-        axes[idx].axis('off')
-
-    axes[n].imshow(gt, cmap='jet')
-    axes[n].set_title("Ground Truth")
-    axes[n].axis('off')
-
-    for idx in range(n+1, len(axes)):
-        axes[idx].axis('off')
-
-    plt.suptitle("Comparaison des alpha (direction privilégiée)", fontsize=14)
-    plt.tight_layout()
-    plt.show()
-
-    # Tableau récapitulatif
-    print("\n=== Tableau récapitulatif ===")
-    print(f"{'alpha':>8} | {'OAC':>8} | {'CE':>8}")
-    print("-" * 30)
-    for res in resultats:
-        print(f"{res['alpha']:>8.2f} | {res['final_oac']:>8.4f} | "
-              f"{res['final_ce']:>8.4f}")
-
-
+# VISUALISATION
 def plot_best_result(best_result, gt):
     classif = best_result["classif"]
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     axes[0].imshow(classif, cmap='jet')
-    axes[0].set_title(f"Meilleur résultat (alpha={best_result['alpha']})\n"
-                      f"OAC={best_result['final_oac']:.4f} | "
-                      f"CE={best_result['final_ce']:.4f}")
+    axes[0].set_title(f"Meilleur résultat (alpha={best_result['alpha']})\n" f"OAC={best_result['final_oac']:.4f} | " f"CE={best_result['final_ce']:.4f}")
     axes[0].axis('off')
     axes[1].imshow(gt, cmap='jet')
     axes[1].set_title("Ground Truth")
@@ -312,27 +269,20 @@ def plot_best_result(best_result, gt):
     plt.show()
 
 
-# ─────────────────────────────────────────────
 # POINT D'ENTRÉE
-# ─────────────────────────────────────────────
+
 if __name__ == "__main__":
-    data, gt = load_data('..\\dataset\\indianpinearray.npy',
-                          '..\\dataset\\IPgt.npy')
+    data, gt = load_data('..\\dataset\\indianpinearray.npy', '..\\dataset\\IPgt.npy')
     data_norm = normalize(data)
     n_clusters = 16
 
     # Balayage : on teste plusieurs alpha, chacun avec sa propre
     # optimisation complète par direction privilégiée
-    alphas = [5.5]
+    alphas = [5]
 
-    resultats = sweep_alpha(data_norm, gt, alphas,
-                            n_clusters=n_clusters, n_iter=200,
-                            w_direction=0.5)
+    resultats = sweep_alpha(data_norm, gt, alphas,n_clusters=n_clusters, n_iter=200, w_direction=0.6)
 
-    plot_alpha_comparison(resultats, gt)
-
-    # Sélection du meilleur alpha (selon OAC, juste pour visualiser —
-    # rappel : en pratique on ne devrait pas choisir alpha avec gt)
+    # Sélection du meilleur alpha (selon OAC, juste pour visualiser le résultat)
     best_result = max(resultats, key=lambda r: r["final_oac"])
     print(f"\nMeilleur alpha trouvé : {best_result['alpha']}")
 
