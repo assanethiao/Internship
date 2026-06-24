@@ -1,8 +1,3 @@
-"""
-kmeans_vers4.py
-Module de classification non-supervisée d'images hyperspectrales
-avec recuit simulé à direction privilégiée + coordonnées spatiales (alpha).
-"""
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans

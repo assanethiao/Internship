@@ -5,9 +5,7 @@ from sklearn.metrics import confusion_matrix
 from scipy.optimize import linear_sum_assignment
 
 
-# ─────────────────────────────────────────────
 # CHARGEMENT ET NORMALISATION (pas de variables globales implicites)
-# ─────────────────────────────────────────────
 def load_data(data_path, gt_path):
     data = np.load(data_path)
     gt   = np.load(gt_path)
@@ -15,7 +13,7 @@ def load_data(data_path, gt_path):
 
 
 def normalize(data):
-    """Normalise chaque bande spectrale : moyenne 0, écart-type 1."""
+    """Normalise chaque bande spectrale : moyenne 0, écart-type 1"""
     data_norm = np.zeros_like(data, dtype=np.float64)
     for k in range(data.shape[2]):
         band = data[:, :, k].astype(np.float64)
@@ -24,11 +22,9 @@ def normalize(data):
     return data_norm
 
 
-# ─────────────────────────────────────────────
 # FEATURES
-# ─────────────────────────────────────────────
 def build_features(data, weights=None):
-    """Pour chaque pixel : concatène [centre, haut, bas, gauche, droite]."""
+    """Pour chaque pixel : concatène [centre, haut, bas, gauche, droite]"""
     M, N, K = data.shape
     if weights is not None:
         data = data * weights[np.newaxis, np.newaxis, :]
@@ -47,7 +43,7 @@ def build_features(data, weights=None):
 
 
 def run_kmeans(X, n_clusters, M, N, seed=42):
-    """K-means déterministe (init fixe via seed)."""
+    """K-means déterministe """
     rng = np.random.RandomState(seed)
     init_idx = rng.choice(len(X), n_clusters, replace=False)
     kmeans = KMeans(n_clusters=n_clusters, init=X[init_idx],
@@ -55,13 +51,11 @@ def run_kmeans(X, n_clusters, M, N, seed=42):
     return kmeans.fit_predict(X).reshape(M, N)
 
 
-# ─────────────────────────────────────────────
 # MÉTRIQUES (CE et CIP calculés une seule fois, ensemble)
-# ─────────────────────────────────────────────
 def compute_CE_CIP(classification):
     """
-    Calcule CE et CIP en une seule passe pour éviter les calculs redondants.
-    Retourne (ce, cip).
+    Calcule CE et CIP en une seule passe pour éviter les calculs redondants
+    Retourne (ce, cip)
     """
     M, N = classification.shape
 
@@ -95,13 +89,10 @@ def clustering_accuracy(gt, pred):
     return cm[r, c].sum() / cm.sum()
 
 
-# ─────────────────────────────────────────────
 # CALIBRAGE DU SCORE (mu_i, sigma_i estimés par tirage aléatoire pur)
-# ─────────────────────────────────────────────
 def calibrate_score(data_norm, n_clusters, n_samples=30, seed=999):
     """
     Estime mu_CE, sigma_CE, mu_CIP, sigma_CIP par tirages aléatoires
-    PURS (sans optimisation), comme proposé par l'encadrant.
     """
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
@@ -135,26 +126,22 @@ def compute_score_normalized(ce, cip, mu_ce, sigma_ce, mu_cip, sigma_cip):
     return 0.5 * (term_ce + term_cip)
 
 
-# ─────────────────────────────────────────────
 # RECUIT SIMULÉ AVEC DIRECTION PRIVILÉGIÉE (proposition 1)
-# ─────────────────────────────────────────────
 def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
                                    seed=0, w_direction=0.5,
                                    calibration=None):
     """
-    Recuit simulé à direction privilégiée.
+    Recuit simulé à direction privilégiée
 
     Au lieu de tirer uniquement du bruit gaussien isotrope, on mélange :
       - une exploration dans la direction qui a fait progresser la solution
         la dernière fois (delta_x normalisé)
       - une exploration aléatoire pure (comme avant)
 
-    w_direction : poids donné à la direction privilégiée (entre 0 et 1).
-                  0.5 = autant de poids aux deux termes (proposition de
-                  l'encadrant). Une valeur plus faible explore davantage.
+    w_direction : poids donné à la direction privilégiée (entre 0 et 1)
 
-    calibration : tuple (mu_ce, sigma_ce, mu_cip, sigma_cip).
-                  Si None, on utilise l'ancien score (1-CE)*(1-CIP).
+    calibration : tuple (mu_ce, sigma_ce, mu_cip, sigma_cip)
+                  Si None, on utilise l'ancien score (1-CE)*(1-CIP)
     """
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
@@ -199,7 +186,7 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
         # Tirage 2 : bruit isotrope classique
         b_t = rng.randn(K)
 
-        # Combinaison pondérée (équation 3 de l'encadrant)
+        # Combinaison pondérée 
         noise = sigma * (w_direction * direction_term + (1 - w_direction) * b_t)
 
         new_weights = np.maximum(best_weights + noise, 0)
@@ -251,9 +238,7 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
     }
 
 
-# ─────────────────────────────────────────────
 # VISUALISATIONS
-# ─────────────────────────────────────────────
 def plot_results(result, gt):
     classif = result["classif"]
     final_oac = result["hist_oac"][-1] if result["hist_oac"] else None
@@ -268,7 +253,7 @@ def plot_results(result, gt):
     plt.tight_layout()
     plt.show()
 
-    # CE et CIP au cours des itérations (comme la Figure 1 du document)
+    # CE et CIP au cours des itérations 
     fig, axes = plt.subplots(1, 3, figsize=(18, 4))
     axes[0].plot(result["hist_cip"], color='darkorange')
     axes[0].set_title("Évolution de CIP")
@@ -300,9 +285,7 @@ def plot_results(result, gt):
     plt.show()
 
 
-# ─────────────────────────────────────────────
 # POINT D'ENTRÉE
-# ─────────────────────────────────────────────
 if __name__ == "__main__":
     data, gt = load_data('..\\dataset\\indianpinearray.npy',
                           '..\\dataset\\IPgt.npy')
