@@ -1,11 +1,18 @@
+"""
+kmeans_vers3.py
+Module de classification non-supervisée d'images hyperspectrales
+avec recuit simulé à direction privilégiée.
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from sklearn.metrics import confusion_matrix
 from scipy.optimize import linear_sum_assignment
 
-# CHARGEMENT ET NORMALISATION (pas de variables globales implicites)
 
+# ─────────────────────────────────────────────
+# CHARGEMENT ET NORMALISATION (pas de variables globales implicites)
+# ─────────────────────────────────────────────
 def load_data(data_path, gt_path):
     data = np.load(data_path)
     gt   = np.load(gt_path)
@@ -13,7 +20,7 @@ def load_data(data_path, gt_path):
 
 
 def normalize(data):
-    """Normalise chaque bande spectrale : moyenne 0, écart-type 1"""
+    """Normalise chaque bande spectrale : moyenne 0, écart-type 1."""
     data_norm = np.zeros_like(data, dtype=np.float64)
     for k in range(data.shape[2]):
         band = data[:, :, k].astype(np.float64)
@@ -22,10 +29,11 @@ def normalize(data):
     return data_norm
 
 
+# ─────────────────────────────────────────────
 # FEATURES
-
+# ─────────────────────────────────────────────
 def build_features(data, weights=None):
-    """Pour chaque pixel : concatène [centre, haut, bas, gauche, droite]"""
+    """Pour chaque pixel : concatène [centre, haut, bas, gauche, droite]."""
     M, N, K = data.shape
     if weights is not None:
         data = data * weights[np.newaxis, np.newaxis, :]
@@ -44,7 +52,7 @@ def build_features(data, weights=None):
 
 
 def run_kmeans(X, n_clusters, M, N, seed=42):
-    """K-means déterministe (init fixe via seed)"""
+    """K-means déterministe (init fixe via seed)."""
     rng = np.random.RandomState(seed)
     init_idx = rng.choice(len(X), n_clusters, replace=False)
     kmeans = KMeans(n_clusters=n_clusters, init=X[init_idx],
@@ -52,12 +60,13 @@ def run_kmeans(X, n_clusters, M, N, seed=42):
     return kmeans.fit_predict(X).reshape(M, N)
 
 
+# ─────────────────────────────────────────────
 # MÉTRIQUES (CE et CIP calculés une seule fois, ensemble)
-
+# ─────────────────────────────────────────────
 def compute_CE_CIP(classification):
     """
-    Calcule CE et CIP en une seule passe pour éviter les calculs redondants
-    Retourne (ce, cip)
+    Calcule CE et CIP en une seule passe pour éviter les calculs redondants.
+    Retourne (ce, cip).
     """
     M, N = classification.shape
 
@@ -91,12 +100,13 @@ def clustering_accuracy(gt, pred):
     return cm[r, c].sum() / cm.sum()
 
 
-
+# ─────────────────────────────────────────────
 # CALIBRAGE DU SCORE (mu_i, sigma_i estimés par tirage aléatoire pur)
-
+# ─────────────────────────────────────────────
 def calibrate_score(data_norm, n_clusters, n_samples=30, seed=999):
     """
     Estime mu_CE, sigma_CE, mu_CIP, sigma_CIP par tirages aléatoires
+    PURS (sans optimisation), comme proposé par l'encadrant.
     """
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
@@ -105,7 +115,7 @@ def calibrate_score(data_norm, n_clusters, n_samples=30, seed=999):
     for s in range(n_samples):
         weights = rng.uniform(0, 2, size=K)
         X = build_features(data_norm, weights)
-        classif = run_kmeans(X, n_clusters, M, N, seed=42)
+        classif = run_kmeans(X, n_clusters, M, N, seed=s)
         ce, cip = compute_CE_CIP(classif)
         ce_samples.append(ce)
         cip_samples.append(cip)
@@ -121,7 +131,7 @@ def calibrate_score(data_norm, n_clusters, n_samples=30, seed=999):
 
 def compute_score_normalized(ce, cip, mu_ce, sigma_ce, mu_cip, sigma_cip):
     """
-    Score normalisé :
+    Score normalisé proposé par l'encadrant (équation 1) :
     score = (1/I) * sum_i (mu_i - z_i) / sigma_i
     Ici I=2, z_0=CE, z_1=CIP.
     """
@@ -130,21 +140,26 @@ def compute_score_normalized(ce, cip, mu_ce, sigma_ce, mu_cip, sigma_cip):
     return 0.5 * (term_ce + term_cip)
 
 
-
+# ─────────────────────────────────────────────
 # RECUIT SIMULÉ AVEC DIRECTION PRIVILÉGIÉE (proposition 1)
-
-def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500, seed=42, w_direction=0.5, calibration=None):
+# ─────────────────────────────────────────────
+def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
+                                   seed=0, w_direction=0.5,
+                                   calibration=None):
     """
-    Recuit simulé à direction privilégiée
+    Recuit simulé à direction privilégiée.
 
     Au lieu de tirer uniquement du bruit gaussien isotrope, on mélange :
-      - une exploration dans la direction qui a fait progresser la solution, la dernière fois (delta_x normalisé)
+      - une exploration dans la direction qui a fait progresser la solution
+        la dernière fois (delta_x normalisé)
       - une exploration aléatoire pure (comme avant)
 
-    w_direction : poids donné à la direction privilégiée (entre 0 et 1)
+    w_direction : poids donné à la direction privilégiée (entre 0 et 1).
+                  0.5 = autant de poids aux deux termes (proposition de
+                  l'encadrant). Une valeur plus faible explore davantage.
 
-    calibration : tuple (mu_ce, sigma_ce, mu_cip, sigma_cip)
-                  Si None, on utilise l'ancien score (1-CE)*(1-CIP)
+    calibration : tuple (mu_ce, sigma_ce, mu_cip, sigma_cip).
+                  Si None, on utilise l'ancien score (1-CE)*(1-CIP).
     """
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
@@ -177,7 +192,8 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500, seed=
     sigma, sigma_min = 0.5, 1e-4
     n_plateau = 0
 
-    print(f"Départ | CE={best_ce:.4f} | CIP={best_cip:.4f} | " f"OAC={best_oac:.4f} | score={best_score:.4f}")
+    print(f"Départ | CE={best_ce:.4f} | CIP={best_cip:.4f} | "
+          f"OAC={best_oac:.4f} | score={best_score:.4f}")
 
     for t in range(1, n_iter + 1):
 
@@ -216,7 +232,8 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500, seed=
             best_score, best_weights = score, new_weights
             best_classif, best_ce, best_cip, best_oac = classif, ce, cip, oac
             n_plateau = 0
-            print(f"Iter {t:04d} | CE={ce:.4f} | CIP={cip:.4f} | " f"OAC={oac:.4f} | score={score:.4f} | sigma={sigma:.4f} ✓")
+            print(f"Iter {t:04d} | CE={ce:.4f} | CIP={cip:.4f} | "
+                  f"OAC={oac:.4f} | score={score:.4f} | sigma={sigma:.4f} ✓")
         else:
             n_plateau += 1
             if n_plateau % 20 == 0:
@@ -225,7 +242,8 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500, seed=
                 sigma, n_plateau = 0.1, 0
 
     print(f"\n=== Résultat final ===")
-    print(f"OAC={best_oac:.4f} | CE={best_ce:.4f} | CIP={best_cip:.4f} | " f"score={best_score:.4f}")
+    print(f"OAC={best_oac:.4f} | CE={best_ce:.4f} | CIP={best_cip:.4f} | "
+          f"score={best_score:.4f}")
 
     return {
         "classif": best_classif,
@@ -238,9 +256,9 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500, seed=
     }
 
 
-
+# ─────────────────────────────────────────────
 # VISUALISATIONS
-
+# ─────────────────────────────────────────────
 def plot_results(result, gt):
     classif = result["classif"]
     final_oac = result["hist_oac"][-1] if result["hist_oac"] else None
@@ -277,7 +295,8 @@ def plot_results(result, gt):
 
     # Score vs OAC
     plt.figure(figsize=(7, 5))
-    plt.scatter(result["hist_score"], result["hist_oac"], alpha=0.4, s=10, c='steelblue')
+    plt.scatter(result["hist_score"], result["hist_oac"],
+               alpha=0.4, s=10, c='steelblue')
     plt.xlabel("Score")
     plt.ylabel("OAC")
     plt.title("Relation Score - OAC (direction privilégiée)")
@@ -286,11 +305,12 @@ def plot_results(result, gt):
     plt.show()
 
 
-
+# ─────────────────────────────────────────────
 # POINT D'ENTRÉE
-
+# ─────────────────────────────────────────────
 if __name__ == "__main__":
-    data, gt = load_data('..\\dataset\\indianpinearray.npy','..\\dataset\\IPgt.npy')
+    data, gt = load_data('..\\dataset\\indianpinearray.npy',
+                          '..\\dataset\\IPgt.npy')
     data_norm = normalize(data)
     n_clusters = 16
 
