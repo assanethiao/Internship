@@ -5,14 +5,19 @@ from sklearn.metrics import confusion_matrix
 from scipy.optimize import linear_sum_assignment
 from scipy.ndimage import uniform_filter
 
-data = np.load('..\\dataset\\indianpinearray.npy')
-gt   = np.load('..\\dataset\\IPgt.npy')
-M, N, K = data.shape
+# CHARGEMENT ET NORMALISATION (pas de variables globales implicites)
+
+def load_data(data_path, gt_path):
+    data = np.load(data_path)
+    gt   = np.load(gt_path)
+    return data, gt
+
 
 # ─────────────────────────────────────────────
 # 1. NORMALISATION
 # ─────────────────────────────────────────────
 def normalize(data):
+    """Normalise chaque bande spectrale : moyenne 0, écart-type 1"""
     data_norm = np.zeros_like(data, dtype=np.float64)
     for k in range(data.shape[2]):
         band = data[:, :, k].astype(np.float64)
@@ -20,52 +25,33 @@ def normalize(data):
         data_norm[:, :, k] = (band - mu) / sig if sig > 0 else 0.0
     return data_norm
 
-data_norm = normalize(data)
 
-# ─────────────────────────────────────────────
-# 2. LISSAGE SPATIAL (filtre moyenneur sur une fenêtre size×size)
-#    Remplace le voisinage à 4 pixels : plus de contexte spatial
-# ─────────────────────────────────────────────
-def smooth_spectral(data_norm, window=5):
-    """
-    Moyenne chaque bande sur une fenêtre window x window.
-    Donne un contexte spatial beaucoup plus large que 4 voisins.
-    """
-    smoothed = np.zeros_like(data_norm)
-    for k in range(data_norm.shape[2]):
-        smoothed[:, :, k] = uniform_filter(data_norm[:, :, k], size=window)
-    return smoothed
+# FEATURES
 
-# ─────────────────────────────────────────────
-# 3. FEATURES : spectral original + spectral lissé + coordonnées
-# ─────────────────────────────────────────────
-def build_features_v2(data_norm, data_smooth, weights=None, alpha=1.0):
-    """
-    Feature = [spectral_original, spectral_lissé, alpha*(i,j normalisés)]
-    Le spectral lissé apporte l'info de contexte spatial de façon
-    plus douce qu'une simple concaténation de 4 voisins.
-    """
-    M, N, K = data_norm.shape
-
-    spec1 = data_norm.copy()
-    spec2 = data_smooth.copy()
+def build_features_spatial(data, weights=None, alpha=1.0):
+    M, N, K = data.shape
     if weights is not None:
-        spec1 = spec1 * weights[np.newaxis, np.newaxis, :]
-        spec2 = spec2 * weights[np.newaxis, np.newaxis, :]
+        data = data * weights[np.newaxis, np.newaxis, :]
+    data_pad = np.pad(data, ((1,1),(1,1),(0,0)), mode="reflect")
 
     coords_i = (np.arange(M) - M/2) / (M / (2 * np.sqrt(3)))
     coords_j = (np.arange(N) - N/2) / (N / (2 * np.sqrt(3)))
-    II, JJ = np.meshgrid(coords_i, coords_j, indexing='ij')
 
-    spec1_flat = spec1.reshape(M*N, K)
-    spec2_flat = spec2.reshape(M*N, K)
-    coords_flat = np.stack([II.flatten(), JJ.flatten()], axis=1) * alpha
+    features = []
+    for i in range(1, M+1):
+        for j in range(1, N+1):
+            spectral = np.concatenate([
+                data_pad[i,   j,   :],
+                data_pad[i-1, j,   :],
+                data_pad[i+1, j,   :],
+                data_pad[i,   j-1, :],
+                data_pad[i,   j+1, :]
+            ])
+            spatial = np.array([alpha * coords_i[i-1],
+                                 alpha * coords_j[j-1]])
+            features.append(np.concatenate([spectral, spatial]))
+    return np.array(features)
 
-    return np.concatenate([spec1_flat, spec2_flat, coords_flat], axis=1)
-
-# ─────────────────────────────────────────────
-# 4. K-MEANS DÉTERMINISTE
-# ─────────────────────────────────────────────
 def run_kmeans(X, n_clusters, seed=42):
     rng = np.random.RandomState(seed)
     init_idx = rng.choice(len(X), n_clusters, replace=False)
@@ -73,16 +59,28 @@ def run_kmeans(X, n_clusters, seed=42):
                     n_init=1, random_state=seed)
     return kmeans.fit_predict(X).reshape(M, N)
 
-# ─────────────────────────────────────────────
-# 5. MÉTRIQUES
-# ─────────────────────────────────────────────
 def compute_CE(classification):
     up    = np.roll(classification,  1, axis=0)
     down  = np.roll(classification, -1, axis=0)
     left  = np.roll(classification,  1, axis=1)
     right = np.roll(classification, -1, axis=1)
-    return ((classification != up)   | (classification != down) |
-            (classification != left) | (classification != right)).mean()
+
+    diff_4 = ((classification != up)   | (classification != down) |
+              (classification != left) | (classification != right))
+    ce = diff_4.mean()
+
+    pad = np.pad(classification, 1, mode='edge')
+    isolated = np.ones((M, N), dtype=bool)
+    for di in [-1, 0, 1]:
+        for dj in [-1, 0, 1]:
+            if di == 0 and dj == 0:
+                continue
+            neighbor = pad[1+di:M+1+di, 1+dj:N+1+dj]
+            isolated &= (classification != neighbor)
+    cip = isolated.mean()
+
+    return ce, cip
+
 
 def clustering_accuracy(gt, pred):
     gt_f, pred_f = gt.flatten(), pred.flatten()
@@ -92,99 +90,113 @@ def clustering_accuracy(gt, pred):
     return cm[r, c].sum() / cm.sum()
 
 # ─────────────────────────────────────────────
-# 6. RECHERCHE DU MEILLEUR (window, alpha)
-#    gt est utilisé seulement pour MESURER, pas pour optimiser le choix
+# TEST SUR PLUSIEURS VALEURS D'ALPHA
 # ─────────────────────────────────────────────
 n_clusters = 16
-data_smooth_5  = smooth_spectral(data_norm, window=5)
-data_smooth_9  = smooth_spectral(data_norm, window=9)
-data_smooth_15 = smooth_spectral(data_norm, window=15)
-
-configs = [
-    ("window=5,  alpha=0.5", data_smooth_5,  0.5),
-    ("window=5,  alpha=2.0", data_smooth_5,  2.0),
-    ("window=9,  alpha=0.5", data_smooth_9,  0.5),
-    ("window=9,  alpha=2.0", data_smooth_9,  2.0),
-    ("window=15, alpha=0.5", data_smooth_15, 0.5),
-    ("window=15, alpha=2.0", data_smooth_15, 2.0),
-]
+alphas = [4.9, 5.0, 5.1, 5.2, 5.3, 5.5]
 
 resultats = []
-for label, smooth, alpha in configs:
-    X = build_features_v2(data_norm, smooth, alpha=alpha)
+for alpha in alphas:
+    X = build_features_spatial(data_norm, alpha=alpha)
     classif = run_kmeans(X, n_clusters)
     oac = clustering_accuracy(gt, classif)
     ce  = compute_CE(classif)
-    resultats.append((label, oac, ce, classif))
-    print(f"{label:25s} | OAC={oac:.4f} | CE={ce:.4f}")
+    resultats.append((alpha, oac, ce, classif))
+    print(f"alpha={alpha:.1f} | OAC={oac:.4f} | CE={ce:.4f}")
 
 # ─────────────────────────────────────────────
-# 7. VISUALISATION COMPARATIVE
+# VISUALISATION : une carte par valeur d'alpha
 # ─────────────────────────────────────────────
-fig, axes = plt.subplots(2, 4, figsize=(20, 10))
+fig, axes = plt.subplots(2, 3, figsize=(18, 10))
 axes = axes.flatten()
 
-for idx, (label, oac, ce, classif) in enumerate(resultats):
+for idx, (alpha, oac, ce, classif) in enumerate(resultats):
     axes[idx].imshow(classif, cmap='jet')
-    axes[idx].set_title(f"{label}\nOAC={oac:.4f} | CE={ce:.4f}", fontsize=10)
+    axes[idx].set_title(f"alpha={alpha} | OAC={oac:.4f} | CE={ce:.4f}")
     axes[idx].axis('off')
 
-axes[6].imshow(gt, cmap='jet')
-axes[6].set_title("Ground Truth")
-axes[6].axis('off')
-axes[7].axis('off')
+axes[-1].imshow(gt, cmap='jet')
+axes[-1].set_title("Ground Truth")
+axes[-1].axis('off')
 
+plt.suptitle("Effet du paramètre alpha (importance spatiale)", fontsize=14)
 plt.tight_layout()
 plt.show()
 
 # ─────────────────────────────────────────────
-# 8. MEILLEURE CONFIG : raffinement avec recuit simulé sur c_k
+# RECUIT SIMULÉ avec le meilleur alpha trouvé
 # ─────────────────────────────────────────────
-best_idx = np.argmax([r[1] for r in resultats])
-best_label, _, _, _ = resultats[best_idx]
-best_window = int(configs[best_idx][0].split("window=")[1].split(",")[0])
-best_alpha  = configs[best_idx][2]
-best_smooth = configs[best_idx][1]
+best_alpha = alphas[np.argmax([r[1] for r in resultats])]
+print(f"\nMeilleur alpha : {best_alpha}")
 
-print(f"\nMeilleure config trouvée : {best_label}")
-
-def optimize_recuit(data_norm, data_smooth, gt, alpha, n_clusters=16,
-                     n_iter=300, seed=0):
+def optimize_recuit_spatial(data_norm, gt, alpha, n_clusters=16,
+                             n_iter=500, seed=0):
     rng = np.random.RandomState(seed)
-    K   = data_norm.shape[2]
 
+    def score_fn(classif):
+        ce, cip = compute_CE_CIP(classif)
+        if calibration is not None:
+            mu_ce, sigma_ce, mu_cip, sigma_cip = calibration
+            score = compute_score_normalized(ce, cip, mu_ce, sigma_ce,
+                                              mu_cip, sigma_cip)
+        else:
+            score = (1 - ce) * (1 - cip)
+        return score, ce, cip
+
+    # Initialisation
     best_weights = np.ones(K)
-    X0 = build_features_v2(data_norm, data_smooth, best_weights, alpha)
+    X0 = build_features_spatial(data_norm, best_weights, alpha=alpha)
     best_classif = run_kmeans(X0, n_clusters)
-    best_score   = 1 - compute_CE(best_classif)
-    best_ce      = compute_CE(best_classif)
+    best_score   = 1 - compute_CE(best_classif)  # on minimise CE
     best_oac     = clustering_accuracy(gt, best_classif)
+    best_ce      = compute_CE(best_classif)
 
     hist_ce, hist_oac = [best_ce], [best_oac]
-    sigma, sigma_min, n_plateau = 0.5, 1e-4, 0
 
-    print(f"Départ | CE={best_ce:.4f} | OAC={best_oac:.4f}")
+    sigma, sigma_min = 1.0, 0.00001
+    n_plateau = 0
+
+    print(f"Départ | CE={best_ce:.4f} | CIP={best_cip:.4f} | " f"OAC={best_oac:.4f} | score={best_score:.4f}")
 
     for t in range(1, n_iter + 1):
-        noise = rng.randn(K) * sigma
-        new_w = np.maximum(best_weights + noise, 0)
-        if new_w.sum() == 0:
-            new_w = np.ones(K)
 
-        X_new   = build_features_v2(data_norm, data_smooth, new_w, alpha)
+        # Tirage 1 : direction privilégiée (delta_x normalisé) * bruit scalaire
+        b_prime = rng.randn()
+        direction_term = b_prime * delta_x
+
+        # Tirage 2 : bruit isotrope classique
+        b_t = rng.randn(K)
+
+        # Combinaison pondérée (équation 3 de l'encadrant)
+        noise = sigma * (w_direction * direction_term + (1 - w_direction) * b_t)
+
+        new_weights = np.maximum(best_weights + noise, 0)
+        if new_weights.sum() == 0:
+            new_weights = np.ones(K)
+
+        X_new   = build_features_spatial(data_norm, new_w, alpha=alpha)
         classif = run_kmeans(X_new, n_clusters, seed=t)
         score   = 1 - compute_CE(classif)
         ce      = compute_CE(classif)
         oac     = clustering_accuracy(gt, classif)
 
         hist_ce.append(ce)
+        hist_cip.append(cip)
         hist_oac.append(oac)
+        hist_score.append(score)
+        hist_sigma.append(sigma)
 
         if score > best_score:
-            best_score, best_weights = score, new_w
-            best_classif, best_ce, best_oac = classif, ce, oac
+            # Met à jour la direction privilégiée
+            delta_x_new = new_weights - best_weights
+            norm = np.linalg.norm(delta_x_new)
+            if norm > 1e-12:
+                delta_x = delta_x_new / norm
+
+            best_score, best_weights = score, new_weights
+            best_classif, best_ce, best_cip, best_oac = classif, ce, cip, oac
             n_plateau = 0
-            print(f"Iter {t:03d} | CE={ce:.4f} | OAC={oac:.4f} ✓")
+            print(f"Iter {t:04d} | CE={ce:.4f} | CIP={cip:.4f} | " f"OAC={oac:.4f} | score={score:.4f} | sigma={sigma:.4f} ✓")
         else:
             n_plateau += 1
             if n_plateau % 20 == 0:
@@ -194,18 +206,29 @@ def optimize_recuit(data_norm, data_smooth, gt, alpha, n_clusters=16,
 
     return best_classif, best_weights, hist_ce, hist_oac
 
-classif_final, w_final, hist_ce, hist_oac = optimize_recuit(
-    data_norm, best_smooth, gt, best_alpha, n_clusters=n_clusters, n_iter=300)
+classif_final, w_final, hist_ce, hist_oac = \
+    optimize_recuit_spatial(data_norm, gt, alpha=best_alpha,
+                            n_clusters=n_clusters, n_iter=500)
 
 # Résultat final
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 axes[0].imshow(classif_final, cmap='jet')
-axes[0].set_title(f"Meilleur résultat ({best_label})\n"
+axes[0].set_title(f"Recuit simulé + spatial (alpha={best_alpha})\n"
                   f"OAC={clustering_accuracy(gt, classif_final):.4f} | "
                   f"CE={compute_CE(classif_final):.4f}")
 axes[0].axis('off')
 axes[1].imshow(gt, cmap='jet')
 axes[1].set_title("Ground Truth")
 axes[1].axis('off')
+plt.tight_layout()
+plt.show()
+
+# Courbe CE vs OAC
+plt.figure(figsize=(7, 5))
+plt.scatter(hist_ce, hist_oac, alpha=0.5, s=10, c='steelblue')
+plt.xlabel("CE")
+plt.ylabel("OAC")
+plt.title(f"CE vs OAC (alpha={best_alpha})")
+plt.grid(True)
 plt.tight_layout()
 plt.show()

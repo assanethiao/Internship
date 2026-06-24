@@ -10,7 +10,6 @@ gt   = np.load('..\\dataset\\IPgt.npy')
 
 M, N, K = data.shape
 
-# Data normalization (per band)
 
 def normalize(data):
     """Normalise chaque bande spectrale pour avoir moyenne 0, écart-type 1 """
@@ -26,6 +25,7 @@ def normalize(data):
     return data_norm
 
 data_norm = normalize(data)
+
 
 
 # Build features
@@ -118,7 +118,9 @@ def compute_vraisemblance(classification):
     """
     ce  = compute_CE(classification)
     cip = compute_CIP(classification)
-    return (1 - ce) * (1 - cip)
+    #return 1-cip #DEBUG
+    return 1-ce #DEBUG
+    #return (1 - ce) * (1 - cip) DEBUG
 
 
 # MÉTRIQUE OAC (accuracy clustering)
@@ -134,135 +136,93 @@ def clustering_accuracy(gt, pred):
     row_ind, col_ind = linear_sum_assignment(-cm)
     return cm[row_ind, col_ind].sum() / cm.sum()
 
+# RECUIT SIMULÉ pour optimiser les poids c_k
 
-# BOUCLE D'OPTIMISATION DES PARAMÈTRES c_k
-
-def optimize_weights(data_norm, gt, n_clusters=16, n_iter=200, seed=0):
+def optimize_weights_recuit(data_norm, gt, n_clusters=16, n_iter=500, seed=0):
     """
-    Recherche aléatoire des poids c_k (un par bande spectrale).
-    À chaque itération : - on tire aléatoirement de nouveaux poids - on calcule la vraisemblance (CE + CIP) - on garde les poids qui maximisent la vraisemblance
+    Recuit simulé pour optimiser les poids spectraux c_k.
+
+    Idée : au lieu de tirer des poids complètement aléatoires,
+    on explore AUTOUR des meilleurs poids trouvés, avec un pas
+    qui diminue progressivement (sigma décroissant).
     """
     rng = np.random.RandomState(seed)
     K   = data_norm.shape[2]
 
-    # Initialisation : tous les poids à 1
+    # Initialisation : poids uniformes
     best_weights = np.ones(K)
-    X0           = build_features(data_norm, best_weights)
+    X0 = build_features(data_norm, best_weights)
     best_classif = run_kmeans(X0, n_clusters)
     best_score   = compute_vraisemblance(best_classif)
+    best_ce      = compute_CE(best_classif)
+    best_oac     = clustering_accuracy(gt, best_classif)
 
-    history_ce      = [compute_CE(best_classif)]
-    history_oac     = [clustering_accuracy(gt, best_classif)]
-    history_score   = [best_score]
+    # Historiques
+    hist_ce    = [best_ce]
+    hist_oac   = [best_oac]
+    hist_score = [best_score]
+    hist_sigma = []
 
-    print(f"Iter 000 | CE={history_ce[0]:.4f} | "
-          f"OAC={history_oac[0]:.4f} | score={best_score:.4f}")
+    # Paramètres du recuit
+    sigma_init = 0.5   # écart-type initial pour l'exploration
+    sigma_min  = 0.001    # écart-type minimal
+    n_plateau  = 0        # compteur d'itérations sans amélioration
+    sigma      = sigma_init
+
+    print(f"Iter 000 | CE={best_ce:.4f} | OAC={best_oac:.4f} " f"| score={best_score:.4f} | sigma={sigma:.4f}")
 
     for t in range(1, n_iter + 1):
 
-        # Tirage de nouveaux poids : valeurs positives entre 0 et 2
-        new_weights = rng.uniform(0, 2, size=K)
+        # Exploration autour des meilleurs poids
+        # avec un bruit gaussien de sigma décroissant
+        noise       = rng.randn(K) * sigma
+        new_weights = best_weights + noise
+        new_weights = np.maximum(new_weights, 0)  # pas de poids négatifs
 
-        # Construction des features et clustering
-        X_new    = build_features(data_norm, new_weights)
-        classif  = run_kmeans(X_new, n_clusters, seed=t)
-        score    = compute_vraisemblance(classif)
+        # Fallback si tous les poids sont nuls
+        if new_weights.sum() == 0: 
+            new_weights = np.ones(K)
 
-        # Mise à jour si amélioration
+        X_new   = build_features(data_norm, new_weights)
+        classif = run_kmeans(X_new, n_clusters, seed=t)
+        score   = compute_vraisemblance(classif)
+        ce      = compute_CE(classif)
+        oac     = clustering_accuracy(gt, classif)
+        cip     = compute_CIP(classif) #DEBUG 
+
+        hist_ce.append(ce)
+        hist_oac.append(oac)
+        hist_score.append(score)
+        hist_sigma.append(sigma)
+
         if score > best_score:
             best_score   = score
             best_weights = new_weights
             best_classif = classif
-            print(f"Iter {t:03d} | CE={compute_CE(classif):.4f} | "
-                  f"OAC={clustering_accuracy(gt, classif):.4f} | "
-                  f"score={score:.4f} amélioration")
+            best_ce      = ce
+            best_oac     = oac
+            n_plateau    = 0
+            print(f"Iter {t:03d} | CE={ce:.4f} | OAC={oac:.4f} "
+                  f"| score={score:.4f} | sigma={sigma:.4f} | CIP={cip:.04f} optimisé")
+        else:
+            n_plateau += 1
 
-        history_ce.append(compute_CE(classif))
-        history_oac.append(clustering_accuracy(gt, classif))
-        history_score.append(score)
+        # Réduction de sigma tous les 20 pas sans amélioration
+        if n_plateau > 0 and n_plateau % 20 == 0:
+            sigma = max(sigma * 0.3, sigma_min)
+            cip = compute_CIP(classif) #DEBUG 
+            print(f"DEBUG : Modification de sigma : Iter {t:03d} | SIGMA={sigma:.04f} | CE={ce:.04f} | CIP={cip:.04f} | score={score:.04f} |") #DEBUG 
+            #assert np.abs(score-(1-cip)*(1-ce))<1e-10, (cip,ce,score,np.abs(score-(1-cip)*(1-ce))) #DEBUG 
+        # Redémarrage si sigma trop petit (exploration épuisée)
+        if sigma <= sigma_min:
+            sigma      = sigma_init       #DEBUG
+            #sigma     = sigma_init * 0.2 #DEBUG
 
-    return best_classif, best_weights, history_ce, history_oac, history_score
+            n_plateau = 0
 
+    print(f"\n=== Résultat final ===")
+    print(f"OAC = {best_oac:.4f} | CE = {best_ce:.4f} | " f"score = {best_score:.4f}")
 
-# LANCEMENT
-
-n_clusters = 16
-n_iter     = 40000
-
-print("=== Optimisation en cours ===")
-best_classif, best_weights, history_ce, history_oac, history_score = \
-    optimize_weights(data_norm, gt, n_clusters=n_clusters, n_iter=n_iter, seed=0)
-
-final_oac = clustering_accuracy(gt, best_classif)
-final_ce  = compute_CE(best_classif)
-print(f"\n=== Résultat final ===")
-print(f"OAC = {final_oac:.4f} | CE = {final_ce:.4f}")
+    return best_classif, best_weights, hist_ce, hist_oac, hist_score, hist_sigma
 
 
-# VISUALISATIONS
-
-# Cartes de classification
-plt.figure(figsize=(14, 5))
-plt.subplot(1, 2, 1)
-plt.imshow(best_classif, cmap='jet')
-plt.title(f"Meilleure classification\nOAC={final_oac:.4f} | CE={final_ce:.4f}")
-plt.axis('off')
-
-plt.subplot(1, 2, 2)
-plt.imshow(gt, cmap='jet')
-plt.title("Ground Truth")
-plt.axis('off')
-plt.tight_layout()
-plt.show()
-
-# Courbe CE vs OAC
-plt.figure(figsize=(7, 5))
-plt.scatter(history_ce, history_oac, alpha=0.4, s=10, c='steelblue')
-plt.xlabel("CE (mesure de vraisemblance)")
-plt.ylabel("OAC (performance réelle)")
-plt.title("Relation CE - OAC")
-plt.grid(True)
-plt.tight_layout()
-plt.show()
-
-# Évolution du score combiné
-plt.figure(figsize=(7, 4))
-plt.plot(history_score, color='darkorange')
-plt.xlabel("Itération")
-plt.ylabel("Score vraisemblance (1-CE)×(1-CIP)")
-plt.title("Évolution du score de vraisemblance")
-plt.grid(True)
-plt.tight_layout()
-plt.show()
-
-# Visualisation des poids spectraux optimisés c_k
-
-plt.figure(figsize=(12,4))
-plt.plot(best_weights, linewidth=2)
-plt.xlabel("Indice de bande spectrale k")
-plt.ylabel("Poids c_k")
-plt.title("Poids spectraux optimisés")
-plt.grid(True)
-plt.tight_layout()
-plt.show()
-
-# Visualisation des bandes les plus importantes (c_k > 1)
-plt.figure(figsize=(12,4))
-plt.bar(np.arange(K), best_weights)
-plt.xlabel("Indice de bande spectrale k")
-plt.ylabel("Poids c_k")
-plt.title("Importance des bandes spectrales")
-plt.grid(True, axis='y')
-plt.tight_layout()
-plt.show()
-
-# Visualisation vraisemblance vs OAC
-
-plt.figure(figsize=(7, 5))
-plt.scatter(history_score, history_oac, alpha=0.4, s=10, c='steelblue')
-plt.xlabel("Score vraisemblance")
-plt.ylabel("OAC (performance réelle)")
-plt.title("Relation Score - OAC")
-plt.grid(True)
-plt.tight_layout()
-plt.show()

@@ -179,7 +179,7 @@ def optimize_weights_recuit(data_norm, gt, n_clusters=16, n_iter=500, seed=0):
         new_weights = np.maximum(new_weights, 0)  # pas de poids négatifs
 
         # Fallback si tous les poids sont nuls
-        if new_weights.sum() == 0: 
+        if new_weights.sum() == 0:
             new_weights = np.ones(K)
 
         X_new   = build_features(data_norm, new_weights)
@@ -207,11 +207,11 @@ def optimize_weights_recuit(data_norm, gt, n_clusters=16, n_iter=500, seed=0):
 
         # Réduction de sigma tous les 20 pas sans amélioration
         if n_plateau > 0 and n_plateau % 20 == 0:
-            sigma = max(sigma * 0.3, sigma_min)
+            sigma = max(sigma * 0.2, sigma_min)
 
         # Redémarrage si sigma trop petit (exploration épuisée)
         if sigma <= sigma_min:
-            sigma     = sigma_init * 0.2
+            sigma     = sigma_init * 0.3
             n_plateau = 0
 
     print(f"\n=== Résultat final ===")
