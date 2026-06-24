@@ -323,10 +323,10 @@ if __name__ == "__main__":
 
     # Balayage : on teste plusieurs alpha, chacun avec sa propre
     # optimisation complète par direction privilégiée
-    alphas = [0.0, 0.5, 1.0, 2.0, 5.0, 8.0]
+    alphas = [5.5]
 
     resultats = sweep_alpha(data_norm, gt, alphas,
-                            n_clusters=n_clusters, n_iter=300,
+                            n_clusters=n_clusters, n_iter=200,
                             w_direction=0.5)
 
     plot_alpha_comparison(resultats, gt)
