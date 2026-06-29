@@ -207,7 +207,7 @@ def optimize_weights_recuit(data_norm, gt, n_clusters=16, n_iter=500, seed=0):
 
         # Réduction de sigma tous les 20 pas sans amélioration
         if n_plateau > 0 and n_plateau % 20 == 0:
-            sigma = max(sigma * 0.2, sigma_min)
+            sigma = max(sigma * 0.8, sigma_min)
 
         # Redémarrage si sigma trop petit (exploration épuisée)
         if sigma <= sigma_min:
@@ -224,7 +224,7 @@ def optimize_weights_recuit(data_norm, gt, n_clusters=16, n_iter=500, seed=0):
 # LANCEMENT
 
 n_clusters = 16
-n_iter     = 500
+n_iter     = 200
 
 print("=== Optimisation en cours ===")
 best_classif, best_weights, history_ce, history_oac, history_score, history_sigma = optimize_weights_recuit(data_norm, gt, n_clusters=n_clusters, n_iter=n_iter, seed=0)

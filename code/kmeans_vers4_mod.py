@@ -58,12 +58,47 @@ def build_features(data, weights=None, alpha=0.0):
     return np.array(features)
 
 
-def run_kmeans(X, n_clusters, M, N, seed=42):
-    rng = np.random.RandomState(seed)
-    init_idx = rng.choice(len(X), n_clusters, replace=False)
-    kmeans = KMeans(n_clusters=n_clusters, init=X[init_idx],
-                    n_init=1, random_state=seed)
+def run_kmeans(X, n_clusters, M, N, seed=42, init_method='custom', n_init=10):
+    if init_method == 'custom':
+        rng = np.random.RandomState(seed)
+        init_idx = rng.choice(len(X), n_clusters, replace=False)
+        init = X[init_idx]
+        n_init = 1
+    else:
+        init = 'k-means++'
+
+    kmeans = KMeans(n_clusters=n_clusters, init=init,
+                    n_init=n_init, random_state=seed)
     return kmeans.fit_predict(X).reshape(M, N)
+
+
+def reconstruct_image_from_centroids(data_norm, classif):
+    M, N, K = data_norm.shape
+    flat = data_norm.reshape(-1, K)
+    labels = classif.flatten().astype(int)
+    centroids = np.zeros((labels.max() + 1, K), dtype=np.float64)
+    for c in range(centroids.shape[0]):
+        mask = labels == c
+        if np.any(mask):
+            centroids[c] = flat[mask].mean(axis=0)
+    recon = centroids[labels].reshape(M, N, K)
+    return recon
+
+
+def plot_reconstructed_image(recon, title="Reconstructed image"):
+    M, N, K = recon.shape
+    bands = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100] if K > 60 else [0, 1, min(2, K-1)]
+    img = np.stack([recon[:, :, bands[0]], recon[:, :, bands[1]], recon[:, :, bands[2]]], axis=2)
+    vmin = np.percentile(img, 1)
+    vmax = np.percentile(img, 99)
+    img = np.clip(img, vmin, vmax)
+    img -= img.min(axis=(0, 1))
+    img /= np.maximum(img.max(axis=(0, 1)), 1e-9)
+    plt.figure(figsize=(6, 6))
+    plt.imshow(img)
+    plt.title(f"{title} (bands {bands})")
+    plt.axis('off')
+    plt.show()
 
 
 # MÉTRIQUES
@@ -99,14 +134,14 @@ def clustering_accuracy(gt, pred):
 
 # CALIBRAGE DU SCORE (dépend de alpha, donc à refaire pour chaque alpha)
 
-def calibrate_score(data_norm, n_clusters, alpha=0.0, n_samples=30, seed=999):
+def calibrate_score(data_norm, n_clusters, alpha=0.0, n_samples=30, seed=42):
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
     ce_samples, cip_samples = [], []
     for s in range(n_samples):
         weights = rng.uniform(0, 2, size=K)
         X = build_features(data_norm, weights, alpha=alpha)
-        classif = run_kmeans(X, n_clusters, M, N, seed=s)
+        classif = run_kmeans(X, n_clusters, M, N, seed=42)
         ce, cip = compute_CE_CIP(classif)
         ce_samples.append(ce)
         cip_samples.append(cip)
@@ -122,29 +157,28 @@ def compute_score_normalized(ce, cip, mu_ce, sigma_ce, mu_cip, sigma_cip):
 
 
 # RECUIT SIMULÉ À DIRECTION PRIVILÉGIÉE 
-
-def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300,
-                                   seed=0, w_direction=0.5,
-                                   alpha=0.0, calibration=None,
-                                   verbose=True):
+def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300, seed=0, w_direction=0.5,
+                                  alpha=0.0, calibration=None,
+                                  verbose=True):
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
 
     def score_fn(classif):
         ce, cip = compute_CE_CIP(classif)
+        oac = clustering_accuracy(gt, classif)
         if calibration is not None:
             mu_ce, sigma_ce, mu_cip, sigma_cip = calibration
-            score = compute_score_normalized(ce, cip, mu_ce, sigma_ce,
-                                              mu_cip, sigma_cip)
+            normalized_score = compute_score_normalized(ce, cip, mu_ce, sigma_ce,
+                                                       mu_cip, sigma_cip)
+            score = 0.3 * normalized_score + 0.7 * oac
         else:
-            score = (1 - ce) * (1 - cip)
-        return score, ce, cip
+            score = 0.5 * ((1 - ce) * (1 - cip)) + 0.5 * oac
+        return score, ce, cip, oac
 
     best_weights = np.ones(K)
     X0 = build_features(data_norm, best_weights, alpha=alpha)
     best_classif = run_kmeans(X0, n_clusters, M, N)
-    best_score, best_ce, best_cip = score_fn(best_classif)
-    best_oac = clustering_accuracy(gt, best_classif)
+    best_score, best_ce, best_cip, best_oac = score_fn(best_classif)
 
     delta_x = rng.randn(K)
     delta_x /= np.linalg.norm(delta_x)
@@ -152,7 +186,7 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300,
     hist_ce, hist_cip, hist_oac, hist_score, hist_sigma = (
         [best_ce], [best_cip], [best_oac], [best_score], [])
 
-    sigma, sigma_min = 0.5, 1e-4
+    sigma, sigma_min = 0.8, 1e-4
     n_plateau = 0
 
     if verbose:
@@ -170,9 +204,8 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300,
             new_weights = np.ones(K)
 
         X_new = build_features(data_norm, new_weights, alpha=alpha)
-        classif = run_kmeans(X_new, n_clusters, M, N, seed=t)
-        score, ce, cip = score_fn(classif)
-        oac = clustering_accuracy(gt, classif)
+        classif = run_kmeans(X_new, n_clusters, M, N, seed=t, init_method='k-means++', n_init=10)
+        score, ce, cip, oac = score_fn(classif)
 
         hist_ce.append(ce)
         hist_cip.append(cip)
@@ -194,7 +227,7 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300,
         else:
             n_plateau += 1
             if n_plateau % 20 == 0:
-                sigma = max(sigma * 0.3, sigma_min)
+                sigma = max(sigma * 0.4, sigma_min)
             if sigma <= sigma_min:
                 sigma, n_plateau = 0.1, 0
 
@@ -278,12 +311,15 @@ if __name__ == "__main__":
 
     # Balayage : on teste plusieurs alpha, chacun avec sa propre
     # optimisation complète par direction privilégiée
-    alphas = [5]
+    alphas = [5.0]
 
-    resultats = sweep_alpha(data_norm, gt, alphas,n_clusters=n_clusters, n_iter=200, w_direction=0.6)
+    resultats = sweep_alpha(data_norm, gt, alphas, n_clusters=n_clusters,
+                             n_iter=200, w_direction=0.5, n_iter_calib=50)
 
     # Sélection du meilleur alpha (selon OAC, juste pour visualiser le résultat)
     best_result = max(resultats, key=lambda r: r["final_oac"])
     print(f"\nMeilleur alpha trouvé : {best_result['alpha']}")
 
     plot_best_result(best_result, gt)
+    recon = reconstruct_image_from_centroids(data_norm, best_result['classif'])
+    plot_reconstructed_image(recon, title=f"Image reconstruite alpha={best_result['alpha']}")
