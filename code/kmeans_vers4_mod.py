@@ -314,7 +314,7 @@ if __name__ == "__main__":
     alphas = [5.0]
 
     resultats = sweep_alpha(data_norm, gt, alphas, n_clusters=n_clusters,
-                             n_iter=200, w_direction=0.5, n_iter_calib=50)
+                             n_iter=2000, w_direction=0.999, n_iter_calib=50)
 
     # Sélection du meilleur alpha (selon OAC, juste pour visualiser le résultat)
     best_result = max(resultats, key=lambda r: r["final_oac"])

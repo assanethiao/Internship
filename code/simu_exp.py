@@ -14,7 +14,7 @@ def exp2():
   print("=== Optimisation en cours ===")
   import kmeans_vers3_mod as kvm
   best_classif, best_weights, history_ce, history_oac, history_score, history_sigma =\
-  kvm.optimize_weights_recuit(kvm.data_norm, kvm.gt, n_clusters=n_clusters, n_iter=n_iter, seed=0)
+  kvm.optimize_weights_recuit(kvm.data_norm, kvm.gt, n_clusters=n_clusters, n_iter=n_iter, seed=42)
   #save('exp2_cip.pkl',['best_classif', 'best_weights', 'history_ce', 'history_oac', 'history_score', 'history_sigma'],\
   #[best_classif, best_weights, history_ce, history_oac, history_score, history_sigma])
   #le programme compute_vraisemblance doit etre modifié pour changer CE et CIP
@@ -22,7 +22,7 @@ def exp2():
   [best_classif, best_weights, history_ce, history_oac, history_score, history_sigma])
 
 def exp3(): 
-  dc = load('exp2_cip.pkl')  
+  dc = load('exp2_ce.pkl')  
   t = np.array(range(0,len(dc['history_score'])))
   #print(t)
   cip = 1-np.array(dc['history_score'])
@@ -85,7 +85,7 @@ def exp5():
   oac1 = kv.clustering_accuracy(gt, classif1)
   print(f"CE={ce1:.4f} | CIP={cip1:.4f} | OAC={oac1:.4f} | score={score1:.4f} ")
   X_new2 = kv.build_features(data_norm, weights)
-  classif2 = kv.run_kmeans(X_new2, n_clusters, M, N, seed=seed+1)
+  classif2 = kv.run_kmeans(X_new2, n_clusters, M, N, seed=seed)
   score2, ce2, cip2 = score_fn(classif2,calibration=calibration)
   oac2 = kv.clustering_accuracy(gt, classif2)
   print(f"CE={ce2:.4f} | CIP={cip2:.4f} | OAC={oac2:.4f} | score={score2:.4f} ")
@@ -124,7 +124,7 @@ def exp6():
 
 
   def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=5000,
-                                   seed=0, w_direction=0.5,
+                                   seed=42, w_direction=0.5,
                                    calibration=None):
     """
     Recuit simulé à direction privilégiée
@@ -282,8 +282,7 @@ def exp6():
   # Étape 2 : optimisation avec direction privilégiée + score normalisé
   print("\n=== Optimisation (direction privilégiée) ===")
   result = optimize_weights_directional(data_norm, gt, n_clusters=n_clusters, n_iter=10**6, w_direction=0.999, calibration=calibration)
-  plot1(result,gt)  
-
+  plot2(result,gt)  
 
 
 #######################################################################
