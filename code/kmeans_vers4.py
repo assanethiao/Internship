@@ -3,7 +3,42 @@ import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from sklearn.metrics import confusion_matrix
 from scipy.optimize import linear_sum_assignment
+from typing import Any
 
+
+
+def save(nom_fichier:str,list_nom_var:list[str],list_var:list[Any])->None:
+  """sauvegarde sous format binaire la liste des variables indiquees dans list_var
+  le fichier s'appelle nom_fichier
+  les noms des variables doivent etre mises avec des apostrophes autour
+  """
+  import pickle
+  assert len(nom_fichier)>4, 'nom_fichier doit faire plus que 4 lettres'
+  assert nom_fichier[-4:] == '.pkl'
+  assert type(list_var) == list
+  assert type(list_nom_var[0]) == str
+  assert len(list_var) == len(list_nom_var)
+  list_var_=[list_nom_var,list_var]
+  open_file = open(nom_fichier, "wb")
+  pickle.dump(list_var_, open_file)
+  open_file.close()
+  
+def load(nom_fichier:str)->dict[str,Any]:
+  """lit le fichier binaire et renvoie un dictionnaire dont les clef
+  sont les noms des variables enregistres. 
+  """
+  import pickle
+  assert len(nom_fichier)>4, 'nom_fichier doit faire plus que 4 lettres'
+  assert nom_fichier[-4:] == '.pkl'
+  file = open(nom_fichier, "rb")
+  
+  list_var = pickle.load(file)
+  dc={}
+  for k in range(len(list_var[0])):
+    dc[list_var[0][k]]=list_var[1][k]
+  file.close()
+  return dc
+  
 
 # CHARGEMENT ET NORMALISATION (pas de variables globales implicites)
 def load_data(data_path, gt_path):
@@ -127,7 +162,7 @@ def compute_score_normalized(ce, cip, mu_ce, sigma_ce, mu_cip, sigma_cip):
 
 
 # RECUIT SIMULÉ AVEC DIRECTION PRIVILÉGIÉE (proposition 1)
-def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
+def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=5000,
                                    seed=0, w_direction=0.5,
                                    calibration=None):
     """
@@ -143,6 +178,8 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
     calibration : tuple (mu_ce, sigma_ce, mu_cip, sigma_cip)
                   Si None, on utilise l'ancien score (1-CE)*(1-CIP)
     """
+    import random as rd
+    w_direction1 = 0.5
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
 
@@ -168,8 +205,8 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
     delta_x = rng.randn(K)
     delta_x /= np.linalg.norm(delta_x)
 
-    hist_ce, hist_cip, hist_oac, hist_score, hist_sigma = (
-        [best_ce], [best_cip], [best_oac], [best_score], [])
+    hist_ce, hist_cip, hist_oac, hist_score, hist_sigma, hist_is_best = (
+        [best_ce], [best_cip], [best_oac], [best_score], [], [])
 
     sigma, sigma_min = 0.5, 1e-4
     n_plateau = 0
@@ -181,13 +218,26 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
 
         # Tirage 1 : direction privilégiée (delta_x normalisé) * bruit scalaire
         b_prime = rng.randn()
-        direction_term = b_prime * delta_x
+        if n_plateau > 50: 
+            delta_x = rng.randn(K)
+            delta_x /= np.linalg.norm(delta_x)
+        if rd.random() < 0.9: 
+            direction_term = b_prime * delta_x
+        else: 
+            a=rng.randn(K)
+            direction_term = b_prime * a/np.linalg.norm(a)
 
         # Tirage 2 : bruit isotrope classique
         b_t = rng.randn(K)
 
         # Combinaison pondérée 
-        noise = sigma * (w_direction * direction_term + (1 - w_direction) * b_t)
+        if rd.random() < 0.5: 
+            w_direction2 = w_direction1
+        else: 
+            w_direction2 = 0.9
+            
+        noise = sigma * (w_direction2 * direction_term + (1 - w_direction2) * b_t)
+
 
         new_weights = np.maximum(best_weights + noise, 0)
         if new_weights.sum() == 0:
@@ -206,6 +256,7 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
 
         if score > best_score:
             # Met à jour la direction privilégiée
+            w_direction1 = w_direction
             delta_x_new = new_weights - best_weights
             norm = np.linalg.norm(delta_x_new)
             if norm > 1e-4:
@@ -216,12 +267,32 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
             n_plateau = 0
             print(f"Iter {t:04d} | CE={ce:.4f} | CIP={cip:.4f} | "
                   f"OAC={oac:.4f} | score={score:.4f} | sigma={sigma:.4f} ✓")
+            is_best = True      
         else:
+            is_best = False
             n_plateau += 1
             if n_plateau % 30 == 0:
                 sigma = max(sigma * 0.5, sigma_min)
             if sigma <= sigma_min:
                 sigma, n_plateau = 0.1, 0
+
+        hist_is_best.append(is_best)        
+        if np.mod(t,100)== 0: 
+            result = {
+                "classif": best_classif,
+                "weights": best_weights,
+                "hist_ce": hist_ce,
+                "hist_cip": hist_cip,
+                "hist_oac": hist_oac,
+                "hist_score": hist_score,
+                "hist_sigma": hist_sigma,
+                "hist_is_best": hist_is_best,
+            }        
+            print(f"Iter {t:04d} | CE={ce:.4f} | CIP={cip:.4f} | "
+                  f"OAC={oac:.4f} | score={score:.4f} | sigma={sigma:.4f} ✓")
+            plot1(result,gt)      
+            save('juin_29_result.pkl',['result'],[result])
+            
 
     print(f"\n=== Résultat final ===")
     print(f"OAC={best_oac:.4f} | CE={best_ce:.4f} | CIP={best_cip:.4f} | "
@@ -235,10 +306,59 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=500,
         "hist_oac": hist_oac,
         "hist_score": hist_score,
         "hist_sigma": hist_sigma,
+        "hist_is_best": hist_is_best,
     }
 
 
+
+
+
+def debut():
+    """import seb; plt,np,sig = seb.debut()"""  
+    import matplotlib.pyplot as plt
+    params = {'legend.fontsize': 20,
+         'axes.labelsize': 20,
+         'axes.titlesize':20,
+         'xtick.labelsize':20,
+         'ytick.labelsize':20,
+         'legend.loc':'upper right'}
+         
+    plt.rcParams.update(params)
+    return plt
+
+
 # VISUALISATIONS
+def plot1(result,gt): 
+    plt = debut()
+    plt.close('all')
+    fig,ax = plt.subplots()
+    ax.plot(result["hist_cip"], color='darkorange')
+    ax.set_xlabel("Iterations")
+    plt.tight_layout()
+    ax.grid(True)
+    fig.show()
+    fig.savefig('juin_29_fig1.png')
+    print('figure : juin_29_fig1.png')
+
+    fig,ax = plt.subplots()
+    ax.plot(result["hist_ce"], color='steelblue')
+    ax.set_xlabel("Iterations")
+    plt.tight_layout()
+    ax.grid(True)
+    fig.show()
+    fig.savefig('juin_29_fig2.png')
+    print('figure : juin_29_fig2.png')
+
+    fig,ax = plt.subplots()
+    ax.plot(result["hist_sigma"], color='purple')
+    ax.set_xlabel("Iterations")
+    plt.tight_layout()
+    ax.grid(True)
+    fig.show()
+    fig.savefig('juin_29_fig3.png')
+    print('figure : juin_29_fig3.png')
+
+
 def plot_results(result, gt):
     classif = result["classif"]
     final_oac = result["hist_oac"][-1] if result["hist_oac"] else None
@@ -287,8 +407,8 @@ def plot_results(result, gt):
 
 # POINT D'ENTRÉE
 if __name__ == "__main__":
-    data, gt = load_data('..\\dataset\\indianpinearray.npy',
-                          '..\\dataset\\IPgt.npy')
+    data, gt = load_data('../dataset/indianpinearray.npy',
+                          '../dataset/IPgt.npy')
     data_norm = normalize(data)
     n_clusters = 16
 
@@ -298,6 +418,6 @@ if __name__ == "__main__":
 
     # Étape 2 : optimisation avec direction privilégiée + score normalisé
     print("\n=== Optimisation (direction privilégiée) ===")
-    result = optimize_weights_directional(data_norm, gt, n_clusters=n_clusters, n_iter=300, w_direction=0.5, calibration=calibration)
-
-    plot_results(result, gt)
+    result = optimize_weights_directional(data_norm, gt, n_clusters=n_clusters, n_iter=10**6, w_direction=0.999, calibration=calibration)
+    plot1(result,gt)
+    #plot_results(result, gt)
