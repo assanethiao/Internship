@@ -23,7 +23,7 @@ def normalize(data):
 
 # FEATURES (spectral + spatial, alpha contrôle l'importance du spatial)
 
-def build_features(data, weights=None, alpha=0.0):
+def build_features(data, weights=None):
     """
     Pour chaque pixel : concatène [centre, haut, bas, gauche, droite]
     Puis on ajoute les coordonnées spatiales (i,j) normalisées * alpha.
@@ -36,9 +36,6 @@ def build_features(data, weights=None, alpha=0.0):
         data = data * weights[np.newaxis, np.newaxis, :]
     data_pad = np.pad(data, ((1, 1), (1, 1), (0, 0)), mode="reflect")
 
-    coords_i = (np.arange(M) - M/2) / (M / (2 * np.sqrt(3)))
-    coords_j = (np.arange(N) - N/2) / (N / (2 * np.sqrt(3)))
-
     features = []
     for i in range(1, M + 1):
         for j in range(1, N + 1):
@@ -49,12 +46,8 @@ def build_features(data, weights=None, alpha=0.0):
                 data_pad[i,   j-1, :],
                 data_pad[i,   j+1, :]
             ])
-            if alpha > 0:
-                spatial = np.array([alpha * coords_i[i-1],
-                                     alpha * coords_j[j-1]])
-                features.append(np.concatenate([spectral, spatial]))
-            else:
-                features.append(spectral)
+            
+            features.append(spectral)
     return np.array(features)
 
 
@@ -170,7 +163,7 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300,
             new_weights = np.ones(K)
 
         X_new = build_features(data_norm, new_weights, alpha=alpha)
-        classif = run_kmeans(X_new, n_clusters, M, N, seed=t)
+        classif = run_kmeans(X_new, n_clusters, M, N, seed=42)
         score, ce, cip = score_fn(classif)
         oac = clustering_accuracy(gt, classif)
 
