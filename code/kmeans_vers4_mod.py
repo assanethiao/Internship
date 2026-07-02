@@ -226,8 +226,8 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300, seed=
                       f"CIP={cip:.4f} | OAC={oac:.4f} | score={score:.4f} ✓")
         else:
             n_plateau += 1
-            if n_plateau % 20 == 0:
-                sigma = max(sigma * 0.4, sigma_min)
+            if n_plateau % 50 == 0:
+                sigma = max(sigma * 0.9, sigma_min)
             if sigma <= sigma_min:
                 sigma, n_plateau = 0.1, 0
 
@@ -311,10 +311,10 @@ if __name__ == "__main__":
 
     # Balayage : on teste plusieurs alpha, chacun avec sa propre
     # optimisation complète par direction privilégiée
-    alphas = [5.0]
+    alphas = [0.0, 1.5, 2, 3,5.0]
 
     resultats = sweep_alpha(data_norm, gt, alphas, n_clusters=n_clusters,
-                             n_iter=2000, w_direction=0.999, n_iter_calib=50)
+                             n_iter=200, w_direction=0.99, n_iter_calib=30)
 
     # Sélection du meilleur alpha (selon OAC, juste pour visualiser le résultat)
     best_result = max(resultats, key=lambda r: r["final_oac"])
