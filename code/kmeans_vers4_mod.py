@@ -21,23 +21,16 @@ def normalize(data):
     return data_norm
 
 
-# FEATURES (spectral + spatial, alpha contrôle l'importance du spatial)
+# FEATURES
 
 def build_features(data, weights=None, alpha=0.0):
     """
     Pour chaque pixel : concatène [centre, haut, bas, gauche, droite]
-    Puis on ajoute les coordonnées spatiales (i,j) normalisées * alpha.
-
-    alpha=0.0 → comportement identique à avant (pas de spatial).
-    alpha>0.0 → ajoute l'information de position.
     """
     M, N, K = data.shape
     if weights is not None:
         data = data * weights[np.newaxis, np.newaxis, :]
     data_pad = np.pad(data, ((1, 1), (1, 1), (0, 0)), mode="reflect")
-
-    coords_i = (np.arange(M) - M/2) / (M / (2 * np.sqrt(3)))
-    coords_j = (np.arange(N) - N/2) / (N / (2 * np.sqrt(3)))
 
     features = []
     for i in range(1, M + 1):
@@ -49,56 +42,17 @@ def build_features(data, weights=None, alpha=0.0):
                 data_pad[i,   j-1, :],
                 data_pad[i,   j+1, :]
             ])
-            if alpha > 0:
-                spatial = np.array([alpha * coords_i[i-1],
-                                     alpha * coords_j[j-1]])
-                features.append(np.concatenate([spectral, spatial]))
-            else:
-                features.append(spectral)
+            features.append(spectral)
     return np.array(features)
 
 
-def run_kmeans(X, n_clusters, M, N, seed=42, init_method='custom', n_init=10):
-    if init_method == 'custom':
-        rng = np.random.RandomState(seed)
-        init_idx = rng.choice(len(X), n_clusters, replace=False)
-        init = X[init_idx]
-        n_init = 1
-    else:
-        init = 'k-means++'
-
-    kmeans = KMeans(n_clusters=n_clusters, init=init,
-                    n_init=n_init, random_state=seed)
+def run_kmeans(X, n_clusters, M, N, seed=42):
+    
+    rng = np.random.RandomState(seed)
+    init_idx = rng.choice(len(X), n_clusters, replace=False)
+    kmeans = KMeans(n_clusters=n_clusters, init=X[init_idx],
+                    n_init=1, random_state=seed)
     return kmeans.fit_predict(X).reshape(M, N)
-
-
-def reconstruct_image_from_centroids(data_norm, classif):
-    M, N, K = data_norm.shape
-    flat = data_norm.reshape(-1, K)
-    labels = classif.flatten().astype(int)
-    centroids = np.zeros((labels.max() + 1, K), dtype=np.float64)
-    for c in range(centroids.shape[0]):
-        mask = labels == c
-        if np.any(mask):
-            centroids[c] = flat[mask].mean(axis=0)
-    recon = centroids[labels].reshape(M, N, K)
-    return recon
-
-
-def plot_reconstructed_image(recon, title="Reconstructed image"):
-    M, N, K = recon.shape
-    bands = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100] if K > 60 else [0, 1, min(2, K-1)]
-    img = np.stack([recon[:, :, bands[0]], recon[:, :, bands[1]], recon[:, :, bands[2]]], axis=2)
-    vmin = np.percentile(img, 1)
-    vmax = np.percentile(img, 99)
-    img = np.clip(img, vmin, vmax)
-    img -= img.min(axis=(0, 1))
-    img /= np.maximum(img.max(axis=(0, 1)), 1e-9)
-    plt.figure(figsize=(6, 6))
-    plt.imshow(img)
-    plt.title(f"{title} (bands {bands})")
-    plt.axis('off')
-    plt.show()
 
 
 # MÉTRIQUES
@@ -132,21 +86,30 @@ def clustering_accuracy(gt, pred):
     return cm[r, c].sum() / cm.sum()
 
 
-# CALIBRAGE DU SCORE (dépend de alpha, donc à refaire pour chaque alpha)
+# CALIBRAGE DU SCORE 
 
-def calibrate_score(data_norm, n_clusters, alpha=0.0, n_samples=30, seed=42):
+def calibrate_score(data_norm, n_clusters, n_samples=30, seed=42, alpha=0.0):
+    """
+    Estime mu_CE, sigma_CE, mu_CIP, sigma_CIP par tirages aléatoires
+    """
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
+
     ce_samples, cip_samples = [], []
     for s in range(n_samples):
         weights = rng.uniform(0, 2, size=K)
-        X = build_features(data_norm, weights, alpha=alpha)
+        X = build_features(data_norm, weights)
         classif = run_kmeans(X, n_clusters, M, N, seed=42)
         ce, cip = compute_CE_CIP(classif)
         ce_samples.append(ce)
         cip_samples.append(cip)
+
     mu_ce,  sigma_ce  = np.mean(ce_samples),  np.std(ce_samples)
     mu_cip, sigma_cip = np.mean(cip_samples), np.std(cip_samples)
+
+    print(f"Calibration : mu_CE={mu_ce:.4f}, sigma_CE={sigma_ce:.4f} | "
+          f"mu_CIP={mu_cip:.4f}, sigma_CIP={sigma_cip:.4f}")
+
     return mu_ce, sigma_ce, mu_cip, sigma_cip
 
 
@@ -204,7 +167,7 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300, seed=
             new_weights = np.ones(K)
 
         X_new = build_features(data_norm, new_weights, alpha=alpha)
-        classif = run_kmeans(X_new, n_clusters, M, N, seed=t, init_method='k-means++', n_init=10)
+        classif = run_kmeans(X_new, n_clusters, M, N, seed=42)
         score, ce, cip, oac = score_fn(classif)
 
         hist_ce.append(ce)
@@ -247,7 +210,6 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300, seed=
         "final_oac": best_oac,
         "final_ce": best_ce,
     }
-
 
 
 # on lance l'optimisation complète pour chaque alpha
@@ -311,7 +273,7 @@ if __name__ == "__main__":
 
     # Balayage : on teste plusieurs alpha, chacun avec sa propre
     # optimisation complète par direction privilégiée
-    alphas = [0.0, 1.5, 2, 3,5.0]
+    alphas = [5]
 
     resultats = sweep_alpha(data_norm, gt, alphas, n_clusters=n_clusters,
                              n_iter=200, w_direction=0.99, n_iter_calib=30)
@@ -321,5 +283,4 @@ if __name__ == "__main__":
     print(f"\nMeilleur alpha trouvé : {best_result['alpha']}")
 
     plot_best_result(best_result, gt)
-    recon = reconstruct_image_from_centroids(data_norm, best_result['classif'])
-    plot_reconstructed_image(recon, title=f"Image reconstruite alpha={best_result['alpha']}")
+    

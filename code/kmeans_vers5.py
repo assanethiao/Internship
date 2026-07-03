@@ -13,7 +13,7 @@ from sklearn.metrics import confusion_matrix
 from scipy.optimize import linear_sum_assignment
 
 
-# 1. CHARGEMENT ET NORMALISATION
+# CHARGEMENT ET NORMALISATION
 def load_data(data_path, gt_path):
     data = np.load(data_path)
     gt   = np.load(gt_path)
@@ -29,12 +29,9 @@ def normalize(data):
     return data_norm
 
 
-# 2. FEATURES (spectral uniquement, sans alpha)
-#    Le document du 30 juin explique pourquoi alpha est problématique :
-#    il pousse les classes à être des disques, ce qui ne correspond
-#    pas au ground truth qui a des classes multi-régions.
+# FEATURES (spectral uniquement, sans alpha)
 def build_features(data, weights=None):
-    """Concatène [centre, haut, bas, gauche, droite] pour chaque pixel."""
+    """Concatène [centre, haut, bas, gauche, droite] pour chaque pixel"""
     M, N, K = data.shape
     if weights is not None:
         data = data * weights[np.newaxis, np.newaxis, :]
@@ -57,7 +54,7 @@ def run_kmeans(X, n_clusters, M, N, seed=42):
     K-means strictement déterministe.
     seed fixe + n_init=1 garantissent le même résultat
     pour les mêmes weights. Requis par le recuit simulé
-    (doc du 30 juin).
+    (doc du 30 juin)
     """
     rng = np.random.RandomState(seed)
     init_idx = rng.choice(len(X), n_clusters, replace=False)
@@ -66,7 +63,7 @@ def run_kmeans(X, n_clusters, M, N, seed=42):
     return kmeans.fit_predict(X).reshape(M, N)
 
 
-# 3. MÉTRIQUES NORMALISÉES PAR SQRT(TAILLE)
+# MÉTRIQUES NORMALISÉES PAR SQRT(TAILLE)
 #    Nouvelles équations (1) et (2) du document du 30 juin.
 #    Corrige le biais vers les classes très déséquilibrées.
 def compute_CE_CIP_normalise(classification):
@@ -144,9 +141,9 @@ def clustering_accuracy(gt, pred):
     return cm[r, c].sum() / cm.sum()
 
 
-# 4. CALIBRAGE DU SCORE (tirages aléatoires purs)
+# CALIBRAGE DU SCORE 
 #    Estime mu et sigma pour normaliser le score
-#    (équation 1 du doc du 19 juin).
+#    (équation 1 du doc du 19 juin)
 def calibrate_score(data_norm, n_clusters, n_samples=30, seed=42):
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
@@ -175,20 +172,20 @@ def compute_score(ce, cip, calibration):
     return 0.5 * (term_ce + term_cip)
 
 
-# 5. RECUIT SIMULÉ À DIRECTION PRIVILÉGIÉE
-#    Utilisé à chaque étape de l'architecture en échelle.
-#    Score = CE_norm + CIP_norm normalisés
+# RECUIT SIMULÉ À DIRECTION PRIVILÉGIÉE
+#    Utilisé à chaque étape de l'architecture en échelle
+#    
 def optimize_one_step(data_norm, mask_pixels, calibration,
                        n_clusters=2, n_iter=150, seed=42,
                        w_direction=0.5, verbose=True, label=""):
     """
     Optimise un vecteur weights pour séparer les pixels actifs
-    (mask_pixels=True) en n_clusters groupes.
+    (mask_pixels=True) en n_clusters groupes
 
     Utilisé dans l'architecture en échelle : à chaque étape,
-    on n'optimise que sur les pixels restants (mask_pixels).
+    on n'optimise que sur les pixels restants (mask_pixels)
 
-    Retourne le meilleur classif trouvé et les weights associés.
+    Retourne le meilleur classif trouvé et les weights associés
     """
     M, N, K = data_norm.shape
     rng = np.random.RandomState(seed)
@@ -270,7 +267,7 @@ def optimize_one_step(data_norm, mask_pixels, calibration,
     return best_classif, best_weights, hist_score, hist_sigma
 
 
-# 6. ARCHITECTURE EN ÉCHELLE (proposition 1 du doc du 30 juin)
+# ARCHITECTURE EN ÉCHELLE (proposition 1 du doc du 30 juin)
 #
 #    À chaque étape c (de 1 à n_classes-1) :
 #      - K-means à 2 clusters sur les pixels restants
@@ -286,10 +283,10 @@ def ladder_clustering(data_norm, gt, calibration,
                        w_direction=0.99):
     """
     Architecture en échelle comme proposé dans le document du 30 juin,
-    section 5, première proposition.
+    section 5, première proposition
 
     À chaque étape, un vecteur weights différent est optimisé
-    pour extraire une classe parmi les pixels restants.
+    pour extraire une classe parmi les pixels restants
     """
     M, N, K = data_norm.shape
     F = np.zeros((M, N), dtype=int)
@@ -317,8 +314,7 @@ def ladder_clustering(data_norm, gt, calibration,
         )
 
         # Parmi les 2 clusters, on extrait le PLUS PETIT
-        # (en accord avec la remarque du doc : la classe extraite
-        # doit être plus petite que la classe restante)
+        
         labels_actifs = best_classif[mask_restant]
         counts = np.bincount(labels_actifs[labels_actifs >= 0])
         if len(counts) < 2:
@@ -352,7 +348,7 @@ def ladder_clustering(data_norm, gt, calibration,
     return F, all_weights, all_hist_score, oac_steps
 
 
-# 7. VISUALISATIONS
+# VISUALISATIONS
 def plot_results(classif, gt, oac_steps, all_hist_score):
     oac_final = clustering_accuracy(gt, classif)
     ce_final, cip_final = compute_CE_CIP_normalise(classif)
@@ -391,7 +387,7 @@ def plot_results(classif, gt, oac_steps, all_hist_score):
     plt.show()
 
 
-# 8. POINT D'ENTRÉE
+# POINT D'ENTRÉE
 if __name__ == "__main__":
     data, gt = load_data('..\\dataset\\indianpinearray.npy',
                           '..\\dataset\\IPgt.npy')
