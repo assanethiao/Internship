@@ -361,4 +361,4 @@ if __name__ == "__main__":
     print(f"\nMeilleur alpha trouvé : {best_result['alpha']}")
 
     plot_best_result(best_result, gt)
-    
+    plot_confusion_hungarian(gt, best_result["classif"], n_classes=16)
