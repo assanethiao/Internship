@@ -220,7 +220,7 @@ def optimize_weights_directional(data_norm, gt, n_clusters=16, n_iter=300,
 # on lance l'optimisation complète pour chaque alpha
 
 def sweep_alpha(data_norm, gt, alphas, n_clusters=16, n_iter=300,
-                 w_direction=0.5, n_iter_calib=30):
+                 w_direction=0.999, n_iter_calib=30):
     """
     Pour chaque valeur d'alpha :
       calibre mu/sigma (alpha modifie l'échelle des features, donc
@@ -268,6 +268,84 @@ def plot_best_result(best_result, gt):
     plt.tight_layout()
     plt.show()
 
+def plot_confusion_hungarian(gt, classif, n_classes=16):
+
+    # Ignorer le fond (classe 0)
+    mask = gt.flatten() != 0
+
+    y_true = gt.flatten()[mask]
+    y_pred = classif.flatten()[mask]
+
+    cm = confusion_matrix(y_true, y_pred)
+
+    # Appariement optimal avec l'algorithme hongrois
+    rows, cols = linear_sum_assignment(-cm)
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    ax.imshow(cm)
+
+    # Afficher les valeurs
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            ax.text(
+                j, i,
+                str(cm[i, j]),
+                ha="center",
+                va="center"
+            )
+
+    # Entourer les correspondances optimales
+    for r, c in zip(rows, cols):
+        ax.plot(
+            c, r,
+            marker='o',
+            markersize=18,
+            markerfacecolor='none',
+            markeredgewidth=2
+        )
+
+    # Axes
+    ax.set_xlabel("Clusters K-Means")
+    ax.set_ylabel("Classes Ground Truth")
+
+    ax.set_title(
+        "Matrice de confusion et appariement optimal\n"
+        "Indian Pines"
+    )
+
+    ax.set_xticks(np.arange(cm.shape[1]))
+    ax.set_yticks(np.arange(cm.shape[0]))
+
+    ax.set_xticklabels(
+        [f"C{i}" for i in range(cm.shape[1])]
+    )
+
+    ax.set_yticklabels(
+        [f"Classe {i+1}" for i in range(cm.shape[0])]
+    )
+
+    plt.tight_layout()
+
+    # Sauvegarder la figure
+    plt.savefig(
+        "figure_2_2_matrice_confusion.png",
+        dpi=300,
+        bbox_inches="tight"
+    )
+
+    plt.show()
+
+    # Afficher l'appariement dans la console
+    print("\n=== APPARIEMENT OPTIMAL ===")
+
+    for r, c in zip(rows, cols):
+        print(
+            f"Cluster C{c} -> Classe {r+1} "
+            f"({cm[r, c]} pixels)"
+        )
+
+
 
 # POINT D'ENTRÉE
 
@@ -278,12 +356,14 @@ if __name__ == "__main__":
 
     # Balayage : on teste plusieurs alpha, chacun avec sa propre
     # optimisation complète par direction privilégiée
-    alphas = [5]
+    alphas = [8]
 
-    resultats = sweep_alpha(data_norm, gt, alphas,n_clusters=n_clusters, n_iter=200, w_direction=0.6)
+    resultats = sweep_alpha(data_norm, gt, alphas,n_clusters=n_clusters, n_iter=500, w_direction=0.6)
 
     # Sélection du meilleur alpha (selon OAC, juste pour visualiser le résultat)
     best_result = max(resultats, key=lambda r: r["final_oac"])
     print(f"\nMeilleur alpha trouvé : {best_result['alpha']}")
 
     plot_best_result(best_result, gt)
+
+    plot_confusion_hungarian( gt, best_result["classif"], n_classes=16)
